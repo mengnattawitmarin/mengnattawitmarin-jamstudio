@@ -109,7 +109,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - uses: android-actions/setup-android@v3
       - uses: actions/download-artifact@v4
         with:
           name: dist-mobile
@@ -127,6 +126,7 @@ jobs:
         run: |
           mkdir -p ~/.android
           cp tool/signing/debug.keystore ~/.android/debug.keystore
+          echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" > android/local.properties
           cd android
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
