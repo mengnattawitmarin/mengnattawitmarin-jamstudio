@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-mobile/
+.output/
+.vercel/
+.tanstack/
+.grok/
+.nitro/
+android/
+ios/
+*.log
+.DS_Store
+.env

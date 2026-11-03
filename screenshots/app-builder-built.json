@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "เลน — แยกเสียง ห้องซ้อมแจม",
+      "hasCanvas": false,
+      "bodyTextLen": 841,
+      "bodyTextHash": "fe0a2702d6bbe4ed975799472617e47bb15c6e3d46430f3f4932d9c63dda1abc",
+      "bodyTextPrefix": "เลน LANE · แยกเสียงในเบราว์เซอร์ สตูดิโอ ตู้แอมป์ ห้องซ้อม สตูดิ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "เลน — แยกเสียง ห้องซ้อมแจม",
+      "hasCanvas": false,
+      "bodyTextLen": 841,
+      "bodyTextHash": "fe0a2702d6bbe4ed975799472617e47bb15c6e3d46430f3f4932d9c63dda1abc",
+      "bodyTextPrefix": "เลน LANE · แยกเสียงในเบราว์เซอร์ สตูดิโอ ตู้แอมป์ ห้องซ้อม สตูดิ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
