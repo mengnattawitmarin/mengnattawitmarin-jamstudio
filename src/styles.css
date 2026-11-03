@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Explicit sources: the mobile build runs Vite from mobile/, so auto-detection would miss src/. */
+@source "./";
+@source "../mobile";
 
 @theme {
   /* JamStudio — navy + electric blue. Token names kept from the original
