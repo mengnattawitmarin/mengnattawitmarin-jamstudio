@@ -16,12 +16,13 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/audio/stretch.test.ts src/lib/audio/tunings.test.ts src/lib/audio/chord-shapes.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/audio/stretch.test.ts src/lib/audio/tunings.test.ts src/lib/audio/chord-shapes.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "build:mobile": "vite build --config vite.mobile.config.ts",
     "dev:mobile": "vite --config vite.mobile.config.ts",
-    "cap:sync": "npm run build:mobile && npx cap sync"
+    "cap:sync": "npm run build:mobile && npx cap sync",
+    "test:platform": "node --test 'scripts/**/*.test.mjs'"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
