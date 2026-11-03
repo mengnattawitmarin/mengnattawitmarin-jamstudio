@@ -1,3 +1,4 @@
+// @ts-nocheck — service worker globals are not in the DOM lib used by tsconfig.
 // Minimal offline cache for the PWA build: network-first for HTML,
 // cache-first for hashed assets. Bump VERSION to drop old caches.
 const VERSION = "jamstudio-v1";
