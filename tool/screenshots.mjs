@@ -10,8 +10,9 @@ const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/cs
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent((req.url ?? "/").split("?")[0]);
   try {
-    const data = await readFile(join(root, path === "/" ? "index.html" : path));
-    res.writeHead(200, { "content-type": types[extname(path)] ?? "application/octet-stream" });
+    const file = path === "/" ? "index.html" : path;
+    const data = await readFile(join(root, file));
+    res.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
     res.end(data);
   } catch {
     res.writeHead(404);
