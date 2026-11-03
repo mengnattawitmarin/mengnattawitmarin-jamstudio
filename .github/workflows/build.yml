@@ -66,6 +66,35 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
+  screenshots:
+    name: Visual QA screenshots
+    needs: web
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-mobile
+          path: dist-mobile
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: node tool/screenshots.mjs
+      - name: Push screenshots branch
+        run: |
+          cd qa
+          git init -q -b screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -qm "QA screenshots for ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screenshots
+
   android:
     name: Android APK
     needs: web
