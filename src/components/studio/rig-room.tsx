@@ -1,23 +1,36 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
+  AudioWaveform,
+  ChevronLeft,
+  ChevronRight,
   Guitar,
+  Headphones,
   Mic,
   Minus,
   Pause,
   Play,
   Plus,
+  RotateCcw,
+  Save,
+  SlidersHorizontal,
+  Speaker,
   Timer,
   Trash2,
   Upload,
-  Waves,
+  Zap,
 } from "lucide-react";
+import { Knob } from "@/components/ui/knob";
+import { useSettings } from "@/lib/settings";
 import { renderDemo } from "@/lib/audio/demo-track";
 import { formatClock } from "@/lib/audio/theory";
 import {
   AMP_KNOBS,
   AMPS,
+  CABS,
+  MICS,
+  PEDAL_COLORS,
+  canPickOutput,
+  listAudioDevices,
   BASS_STRINGS,
   DEFAULT_RIG,
   GUITAR_STRINGS,
@@ -34,6 +47,8 @@ import {
   pedalMeta,
   readSnapshot,
   type AmpId,
+  type CabId,
+  type MicId,
   type PedalState,
   type RigSnapshot,
   type SourceId,
@@ -65,7 +80,9 @@ function stringsFor(source: SourceId) {
   return source === "bass" ? BASS_STRINGS : GUITAR_STRINGS;
 }
 
-export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
+export function RigRoom({ pullStudio, active = true }: { pullStudio: () => Pull | null; active?: boolean }) {
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const engineRef = useRef<RigEngine | null>(null);
   const rigRef = useRef<RigSnapshot>(DEFAULT_RIG);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -75,7 +92,16 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
   const sourceRef = useRef<SourceId>(DEFAULT_RIG.source);
 
   const [rig, setRig] = useState<RigSnapshot>(DEFAULT_RIG);
-  const [reading, setReading] = useState<TunerReading>({ hz: 0, rms: 0 });
+  const [reading, setReading] = useState<TunerReading>({ hz: 0, rms: 0, peak: 0, clip: false });
+  const settings = useSettings();
+  const [view, setView] = useState<"rig" | "amps" | "fx" | "ir" | "io">("rig");
+  const [focusPedal, setFocusPedal] = useState<string | null>(null);
+  const [howl, setHowl] = useState(false);
+  const [irName, setIrName] = useState("");
+  const [latency, setLatency] = useState(0);
+  const [devices, setDevices] = useState<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] }>({ inputs: [], outputs: [] });
+  const [userPresets, setUserPresets] = useState<UserPreset[]>([]);
+  const irRef = useRef<HTMLInputElement>(null);
   const [beat, setBeat] = useState(0);
   const [stringIndex, setStringIndex] = useState(0);
   const [held, setHeld] = useState<number[]>([]);
@@ -104,6 +130,7 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
     if (prev.ambience !== next.ambience) engine.setAmbience(next.ambience);
     if (prev.pedals !== next.pedals) engine.setPedals(next.pedals);
     if (prev.click !== next.click || prev.bpm !== next.bpm) engine.setMetronome(next.click ? next.bpm : null);
+    if (prev.cab !== next.cab || prev.mic !== next.mic || prev.air !== next.air) engine.setCab(next.cab, next.mic, next.air);
   }
 
   function commit(recipe: (current: RigSnapshot) => RigSnapshot) {
@@ -115,14 +142,28 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
   }
 
   useEffect(() => {
-    const saved = readSnapshot(localStorage.getItem("lane-rig"));
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem("lane-rig");
+    } catch {
+      raw = null;
+    }
+    const saved = readSnapshot(raw);
     const initial = rigRef.current === DEFAULT_RIG ? saved : rigRef.current;
     rigRef.current = initial;
     sourceRef.current = initial.source;
     setRig(initial);
     if (initial.source === "bass") setTuneAs("bass");
-    const engine = new RigEngine();
+    const prefs = useSettings.getState();
+    const engine = new RigEngine({ latency: prefs.latency });
     engineRef.current = engine;
+    engine.setCab(initial.cab, initial.mic, initial.air);
+    engine.setInputTrim(prefs.inputTrimDb);
+    if (prefs.outputDeviceId !== "default") void engine.setOutputDevice(prefs.outputDeviceId);
+    engine.howlGuard = prefs.howlGuard;
+    engine.onFeedback = (muted) => setHowl(muted);
+    setLatency(engine.latencyMs());
+    setUserPresets(readUserPresets());
     engine.setInput(initial.input);
     engine.setMaster(initial.master);
     engine.setAmp(initial.amp, initial.knobs);
@@ -138,7 +179,7 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
       const next = live.read();
       setReading((prev) => {
         if (prev.hz === 0 && next.hz === 0 && Math.abs(prev.rms - next.rms) < 0.03) return prev;
-        if (Math.abs(prev.hz - next.hz) < 0.35 && Math.abs(prev.rms - next.rms) < 0.03) return prev;
+        if (Math.abs(prev.hz - next.hz) < 0.35 && Math.abs(prev.rms - next.rms) < 0.03 && Math.abs(prev.peak - next.peak) < 0.03 && prev.clip === next.clip) return prev;
         return next;
       });
       const playing = live.backingIsPlaying();
@@ -149,7 +190,7 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
       }
     }, 90);
     const onKey = (event: KeyboardEvent) => {
-      if (event.code !== "Space") return;
+      if (event.code !== "Space" || !activeRef.current) return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON" || tag === "A" || tag === "SELECT") return;
       const live = engineRef.current;
@@ -174,12 +215,16 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
       saveReady.current = true;
       return;
     }
-    localStorage.setItem("lane-rig", JSON.stringify(rig));
+    try {
+      localStorage.setItem("lane-rig", JSON.stringify(rig));
+    } catch {
+      // storage full / private mode
+    }
   }, [rig]);
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (event.repeat) return;
+      if (event.repeat || !activeRef.current) return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const source = sourceRef.current;
@@ -282,8 +327,11 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
     }
     setLiveError("");
     try {
-      await engine.openLive();
+      const prefs = useSettings.getState();
+      await engine.openLive({ deviceId: prefs.inputDeviceId, channel: prefs.inputChannel });
       setLiveOn(true);
+      setLatency(engine.latencyMs());
+      void listAudioDevices().then(setDevices);
     } catch {
       setLiveOn(false);
       setLiveError("เปิดอินพุตไม่ได้ อนุญาตไมโครโฟน หรือตรวจว่าเสียบสายอยู่ แล้วใช้หูฟังกันเสียงหอน");
@@ -362,275 +410,571 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
     else void engine.resume().then(() => engine.playBacking());
   }
 
-  const family = rig.source === "bass" ? "bass" : tuneAs;
+
+  // ── extra actions for the new UI ─────────────────────────────────────────
+  async function onIrFile(file: File) {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      await engine.resume();
+      const buffer = await engine.ctx.decodeAudioData(await file.arrayBuffer());
+      if (buffer.duration > 3) {
+        setTrackError("ไฟล์ IR ยาวเกินไป (ควรสั้นกว่า 1 วินาที)");
+        return;
+      }
+      engine.setUserIr(buffer);
+      setIrName(file.name);
+      commit((current) => ({ ...current, cab: "ir" }));
+    } catch {
+      setTrackError("อ่านไฟล์ IR ไม่ได้ ใช้ไฟล์ .wav");
+    }
+  }
+
+  function saveUserPreset() {
+    const name = window.prompt("ตั้งชื่อพรีเซ็ต", `พรีเซ็ตของฉัน ${userPresets.length + 1}`)?.trim();
+    if (!name) return;
+    const snapshot = { ...rigRef.current, cab: rigRef.current.cab === "ir" ? "auto" : rigRef.current.cab } as RigSnapshot;
+    const next = [...userPresets.filter((item) => item.name !== name), { id: `u-${Date.now()}`, name: name.slice(0, 40), rig: snapshot }];
+    setUserPresets(next);
+    writeUserPresets(next);
+  }
+
+  function loadUserPreset(id: string) {
+    const preset = userPresets.find((item) => item.id === id);
+    if (!preset) return;
+    const next = readSnapshot(JSON.stringify(preset.rig));
+    engineRef.current?.releaseAll();
+    holds.current.clear();
+    setHeld([]);
+    commit((current) => ({ ...next, bpm: current.bpm, click: current.click }));
+  }
+
+  function deleteUserPreset(id: string) {
+    const next = userPresets.filter((item) => item.id !== id);
+    setUserPresets(next);
+    writeUserPresets(next);
+  }
+
+  function resetRig() {
+    engineRef.current?.releaseAll();
+    commit((current) => ({ ...structuredClone(DEFAULT_RIG), source: current.source, bpm: current.bpm }));
+  }
+
+  async function refreshDevices() {
+    try {
+      setDevices(await listAudioDevices());
+    } catch {
+      setDevices({ inputs: [], outputs: [] });
+    }
+  }
+
+  useEffect(() => {
+    if (view === "io") void refreshDevices();
+  }, [view]);
+
   const pitch = describePitch(reading.hz, rig.a4);
   const inTune = pitch != null && Math.abs(pitch.cents) <= 6;
+  const family = rig.source === "bass" ? "bass" : tuneAs;
   const strings = stringsFor(rig.source);
   const activeAmp = AMPS.find((amp) => amp.id === rig.amp) ?? AMPS[1];
+  const focused = rig.pedals.find((pedal) => pedal.id === focusPedal) ?? null;
+  const artistPresets = RIG_PRESETS.filter((preset) => preset.group === "artist");
+  const basicPresets = RIG_PRESETS.filter((preset) => preset.group !== "artist");
+  const famCabs = CABS.filter((cab) => cab.family === "any" || cab.family === (activeAmp.family === "bass" ? "bass" : "guitar"));
+
+  const RAIL: { id: typeof view; label: string; icon: typeof Guitar }[] = [
+    { id: "rig", label: "แอมป์ & เอฟเฟค", icon: SlidersHorizontal },
+    { id: "amps", label: "ตู้แอมป์", icon: Speaker },
+    { id: "fx", label: "เอฟเฟค", icon: Zap },
+    { id: "ir", label: "IR Loader", icon: AudioWaveform },
+    { id: "io", label: "ตั้งค่าเสียง", icon: Headphones },
+  ];
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4">
-      <section className="max-w-3xl">
-        <p className="text-sm font-medium text-brass">ตู้ซ้อม</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">แอมป์ เอฟเฟกต์ และเพลงประกอบ</h1>
-        <p className="mt-2 text-sm text-muted">
-          เล่นกีตาร์หรือเบสบนจอ หรือเปิดไลน์อินจากเครื่องจริง เรียงก้อนเอฟเฟกต์เอง เลือกตู้หลอด แล้วเปิดเพลงมาซ้อมทับ
-          เสียงเกิดในเบราว์เซอร์ ไม่ได้ส่งไฟล์ออกไป
-        </p>
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 sm:px-4">
+      {howl ? (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-danger bg-danger/15 p-3 text-sm">
+          <span className="font-semibold">ตรวจพบเสียงหอน (ฟีดแบ็ก) — ปิดเสียงออกให้แล้ว</span>
+          <span className="text-muted">ใส่หูฟัง หรือลดอินพุต/ความดัง แล้วกดเปิดเสียงอีกครั้ง</span>
+          <button type="button" onClick={() => engineRef.current?.rearmFeedback()} className={`${solidBtn} ml-auto`}>
+            เปิดเสียงอีกครั้ง
+          </button>
+        </div>
+      ) : null}
+
+      {/* Top bar: source tabs + presets */}
+      <section className="panel flex flex-wrap items-center gap-2 p-2">
+        <div className="flex rounded-lg bg-bg p-1" role="tablist" aria-label="แหล่งเสียง">
+          <SourceTab active={rig.source === "guitar"} onClick={() => chooseSource("guitar")} label="Guitar" />
+          <SourceTab active={rig.source === "bass"} onClick={() => chooseSource("bass")} label="Bass" />
+          <SourceTab active={rig.source === "line"} onClick={() => chooseSource("line")} label="ไลน์อิน" />
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="preset-pick">
+            พรีเซ็ต
+          </label>
+          <select
+            id="preset-pick"
+            className="h-10 max-w-[15rem] rounded-md border border-line bg-surface-2 px-2 text-sm"
+            value=""
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value.startsWith("u-")) loadUserPreset(value);
+              else if (value) usePreset(value);
+            }}
+          >
+            <option value="">พรีเซ็ตของฉัน / โทนศิลปิน…</option>
+            <optgroup label="โทนแบบศิลปิน">
+              {artistPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="พื้นฐาน">
+              {basicPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </optgroup>
+            {userPresets.length ? (
+              <optgroup label="ที่ฉันบันทึก">
+                {userPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </select>
+          <button type="button" onClick={saveUserPreset} className={ghostBtn}>
+            <Save className="size-4" aria-hidden="true" />
+            <span className="hidden sm:inline">บันทึกพรีเซ็ต</span>
+          </button>
+          <button type="button" onClick={resetRig} className={ghostBtn} aria-label="รีเซ็ต">
+            <RotateCcw className="size-4" aria-hidden="true" />
+            <span className="hidden sm:inline">รีเซ็ต</span>
+          </button>
+        </div>
       </section>
 
-      <section className="flex flex-wrap gap-2" aria-label="แหล่งเสียง">
-        <SourceButton active={rig.source === "guitar"} onClick={() => chooseSource("guitar")} icon={Guitar} label="กีตาร์บนจอ" />
-        <SourceButton active={rig.source === "bass"} onClick={() => chooseSource("bass")} icon={Waves} label="เบสบนจอ" />
-        <SourceButton active={rig.source === "line"} onClick={() => chooseSource("line")} icon={Mic} label="ไลน์อิน" />
-      </section>
+      <div className="grid gap-4 lg:grid-cols-[11rem_minmax(0,1fr)_15rem]">
+        {/* Left rail */}
+        <nav className="panel flex gap-1 overflow-x-auto p-2 scrollbar-none lg:flex-col" aria-label="เมนูแอมป์">
+          {RAIL.map((item) => {
+            const Icon = item.icon;
+            const on = view === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setView(item.id)}
+                aria-current={on}
+                className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm font-medium ${on ? "bg-brass/20 text-fg ring-1 ring-brass" : "text-muted hover:bg-surface-2"}`}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-lg border border-line bg-surface p-4">
-          <div className="flex items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-muted">ตั้งสาย</p>
-              <p className={`mt-1 text-5xl font-semibold tabular-nums leading-none ${inTune ? "text-olive" : "text-fg"}`}>
-                {pitch ? pitch.name : "–"}
+        {/* Centre */}
+        <div className="flex min-w-0 flex-col gap-4">
+          {view === "rig" ? (
+            <>
+              <section className="panel p-3">
+                <div className="flex items-end gap-2 overflow-x-auto pb-2 scrollbar-none" aria-label="บอร์ดเอฟเฟกต์">
+                  <TunerStomp hz={reading.hz} pitchName={pitch?.name ?? ""} inTune={inTune} />
+                  {rig.pedals.map((pedal) => (
+                    <Stomp
+                      key={pedal.id}
+                      pedal={pedal}
+                      focused={focusPedal === pedal.id}
+                      onFocus={() => setFocusPedal(focusPedal === pedal.id ? null : pedal.id)}
+                      onToggle={() =>
+                        retunePedals((list) => list.map((item) => (item.id === pedal.id ? { ...item, on: !item.on } : item)))
+                      }
+                    />
+                  ))}
+                  {rig.pedals.length < MAX_PEDALS ? (
+                    <button
+                      type="button"
+                      onClick={() => setView("fx")}
+                      className="grid h-[118px] w-[74px] shrink-0 place-items-center rounded-lg border-2 border-dashed border-line text-muted"
+                      aria-label="เพิ่มเอฟเฟกต์"
+                    >
+                      <Plus className="size-6" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+                {focused ? (
+                  <PedalEditor
+                    pedal={focused}
+                    index={rig.pedals.findIndex((item) => item.id === focused.id)}
+                    total={rig.pedals.length}
+                    onParam={(key, value) =>
+                      retunePedals((list) =>
+                        list.map((item) => (item.id === focused.id ? { ...item, params: { ...item.params, [key]: value } } : item)),
+                      )
+                    }
+                    onToggle={() =>
+                      retunePedals((list) => list.map((item) => (item.id === focused.id ? { ...item, on: !item.on } : item)))
+                    }
+                    onMove={(dir) =>
+                      retunePedals((list) => {
+                        const from = list.findIndex((item) => item.id === focused.id);
+                        const to = from + dir;
+                        if (from < 0 || to < 0 || to >= list.length) return list;
+                        const next = list.slice();
+                        const [item] = next.splice(from, 1);
+                        next.splice(to, 0, item);
+                        return next;
+                      })
+                    }
+                    onRemove={() => {
+                      retunePedals((list) => list.filter((item) => item.id !== focused.id));
+                      setFocusPedal(null);
+                    }}
+                  />
+                ) : (
+                  <p className="px-1 text-xs text-muted">แตะตัวก้อนเพื่อปรับลูกบิด · แตะสวิตช์ด้านล่างเพื่อเปิด/ปิด · สัญญาณไหลจากซ้ายเข้าแอมป์</p>
+                )}
+              </section>
+
+              <section className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+                <AmpHead
+                  name={activeAmp.name}
+                  tube={activeAmp.tube}
+                  knobs={rig.knobs}
+                  onKnob={(key, value) => commit((current) => ({ ...current, knobs: { ...current.knobs, [key]: value } }))}
+                  onPower={() => engineRef.current?.rearmFeedback()}
+                />
+                <Cabinet label={rig.cab === "ir" ? irName || "IR" : (CABS.find((cab) => cab.id === rig.cab)?.name ?? "")} />
+              </section>
+
+              <section className="panel p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">ห้องและเสียงสะท้อน</h2>
+                  <div className="ml-auto flex flex-wrap gap-1">
+                    {ROOMS.map((room) => (
+                      <button
+                        key={room.id}
+                        type="button"
+                        onClick={() => commit((current) => ({ ...current, ambience: { ...current.ambience, kind: room.id } }))}
+                        className={chipSm(rig.ambience.kind === room.id)}
+                      >
+                        {room.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap justify-around gap-4">
+                  <Knob label="หาง" value={rig.ambience.decay} display={pct(rig.ambience.decay)} onChange={(decay) => commit((c) => ({ ...c, ambience: { ...c.ambience, decay } }))} />
+                  <Knob label="มิกซ์" value={rig.ambience.mix} display={pct(rig.ambience.mix)} onChange={(mix) => commit((c) => ({ ...c, ambience: { ...c.ambience, mix } }))} />
+                  <Knob label="โทน" value={rig.ambience.tone} display={pct(rig.ambience.tone)} onChange={(tone) => commit((c) => ({ ...c, ambience: { ...c.ambience, tone } }))} />
+                  <Knob label="อินพุต" value={rig.input} max={1.5} display={pct(rig.input)} onChange={(input) => commit((c) => ({ ...c, input }))} />
+                  <Knob label="วอลุ่มรวม" value={rig.master} display={pct(rig.master)} onChange={(master) => commit((c) => ({ ...c, master }))} />
+                </div>
+              </section>
+            </>
+          ) : null}
+
+          {view === "amps" ? (
+            <section className="panel p-4">
+              <h2 className="text-lg font-semibold">เลือกหัวแอมป์</h2>
+              <p className="mt-1 text-sm text-muted">หลอดใช้เส้นอิ่มอสมมาตร + แซกไฟเลี้ยง · โซลิดสเตตแตกช้ากว่าและคลีนกว่า</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <AmpGroup title="กีตาร์" family="guitar" active={rig.amp} onPick={(id) => commit((current) => ({ ...current, amp: id }))} />
+                <AmpGroup title="เบส" family="bass" active={rig.amp} onPick={(id) => commit((current) => ({ ...current, amp: id }))} />
+              </div>
+              <h3 className="mt-6 text-sm font-semibold">โทนแบบศิลปิน</h3>
+              <p className="mt-1 text-xs text-muted">ค่าตั้งต้นที่ประกอบจากอุปกรณ์ที่ศิลปินใช้จริงตามบันทึกสาธารณะ ไม่ได้เกี่ยวข้องหรือรับรองโดยศิลปิน ปรับต่อตามกีตาร์และปิกอัปของคุณ</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {artistPresets.map((preset) => (
+                  <button key={preset.id} type="button" onClick={() => usePreset(preset.id)} className="rounded-md border border-line bg-surface-2 p-3 text-left hover:border-brass">
+                    <span className="block text-sm font-semibold">{preset.name}</span>
+                    <span className="mt-1 block text-xs text-muted">{preset.blurb}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {view === "fx" ? (
+            <section className="panel p-4">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-semibold">เพิ่มเอฟเฟกต์</h2>
+                  <p className="text-sm text-muted">
+                    บอร์ดใช้ได้สูงสุด {MAX_PEDALS} ก้อน ({rig.pedals.length}/{MAX_PEDALS})
+                  </p>
+                </div>
+                <button type="button" onClick={() => retunePedals(() => [])} className={ghostBtn}>
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  ล้างบอร์ด
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                {PEDALS.map((pedal) => (
+                  <button
+                    key={pedal.kind}
+                    type="button"
+                    disabled={rig.pedals.length >= MAX_PEDALS}
+                    onClick={() => {
+                      const made = makePedal(pedal.kind, true);
+                      retunePedals((list) => [...list, made]);
+                      setFocusPedal(made.id);
+                      setView("rig");
+                    }}
+                    className="flex items-start gap-2 rounded-md border border-line bg-surface-2 p-2 text-left hover:border-brass"
+                  >
+                    <span className="mt-0.5 h-8 w-6 shrink-0 rounded" style={{ background: PEDAL_COLORS[pedal.kind] }} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{pedal.name}</span>
+                      <span className="block text-xs text-muted">{pedal.blurb}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {view === "ir" ? (
+            <section className="panel p-4">
+              <h2 className="text-lg font-semibold">IR Loader — ตู้ลำโพงจากไฟล์</h2>
+              <p className="mt-1 text-sm text-muted">
+                โหลดไฟล์ Impulse Response (.wav) ของตู้ลำโพงที่อัดจากของจริง ระบบจะใช้แทนตู้จำลอง ไฟล์อยู่ในเครื่องคุณเท่านั้น
               </p>
-              <p className="mt-2 text-sm text-muted">
-                {pitch ? `${pitch.octave} · ${pitch.cents > 0 ? "+" : ""}${pitch.cents} เซนต์ · ${reading.hz.toFixed(1)} Hz` : "ดีดสายหรือเปิดไลน์อิน"}
-              </p>
-            </div>
-            <p className="max-w-40 text-right text-sm text-muted">{pitch ? fretHint(pitch.midi, family) : "รอโน้ต"}</p>
-          </div>
-          <div className="relative mt-4 h-3 rounded-full bg-surface-2">
-            <span className="absolute top-0 left-1/2 h-3 w-px bg-line" />
-            {pitch ? (
-              <span
-                className={`absolute top-0 h-3 w-1.5 rounded-full ${inTune ? "bg-olive" : "bg-brass"}`}
-                style={{ left: `${((pitch.cents + 50) / 100) * 100}%` }}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => irRef.current?.click()} className={solidBtn}>
+                  <Upload className="size-4" aria-hidden="true" />
+                  เลือกไฟล์ IR
+                </button>
+                {irName ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      engineRef.current?.setUserIr(null);
+                      setIrName("");
+                      commit((current) => ({ ...current, cab: "auto" }));
+                    }}
+                    className={ghostBtn}
+                  >
+                    เลิกใช้ IR
+                  </button>
+                ) : null}
+              </div>
+              <p className="mt-3 text-sm">{irName ? `กำลังใช้: ${irName}` : "ยังไม่ได้โหลด — ใช้ตู้จำลองอยู่"}</p>
+              <p className="mt-2 text-xs text-muted">IR ไม่ถูกจำข้ามการเปิดแอป ต้องโหลดใหม่ทุกครั้ง</p>
+              <input
+                ref={irRef}
+                type="file"
+                accept=".wav,audio/wav,audio/x-wav"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void onIrFile(file);
+                }}
               />
+            </section>
+          ) : null}
+
+          {view === "io" ? (
+            <section className="panel flex flex-col gap-4 p-4">
+              <div>
+                <h2 className="text-lg font-semibold">อินพุต / เอาต์พุต</h2>
+                <p className="mt-1 text-sm text-muted">
+                  เสียบกีตาร์ผ่านออดิโออินเทอร์เฟซหรืออะแดปเตอร์ (เช่น iRig) แล้วใส่หูฟัง · ห้ามใช้หูฟังบลูทูธถ้าต้องการดีเลย์ต่ำ
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <SelectField
+                  label="อุปกรณ์อินพุต"
+                  value={settings.inputDeviceId}
+                  onChange={(value) => settings.set({ inputDeviceId: value })}
+                  options={[{ value: "default", label: "ค่าเริ่มต้นของระบบ" }, ...devices.inputs.filter((d) => d.deviceId && d.deviceId !== "default").map((d, i) => ({ value: d.deviceId, label: d.label || `อินพุต ${i + 1}` }))]}
+                />
+                <SelectField
+                  label="ช่องอินพุต"
+                  value={settings.inputChannel}
+                  onChange={(value) => settings.set({ inputChannel: value as typeof settings.inputChannel })}
+                  options={[
+                    { value: "mix", label: "รวม (โมโน)" },
+                    { value: "left", label: "ช่อง 1 / ซ้าย" },
+                    { value: "right", label: "ช่อง 2 / ขวา" },
+                  ]}
+                />
+                <SelectField
+                  label={canPickOutput() ? "อุปกรณ์เอาต์พุต" : "อุปกรณ์เอาต์พุต (เลือกในระบบเครื่อง)"}
+                  value={settings.outputDeviceId}
+                  disabled={!canPickOutput()}
+                  onChange={(value) => {
+                    settings.set({ outputDeviceId: value });
+                    void engineRef.current?.setOutputDevice(value);
+                  }}
+                  options={[{ value: "default", label: "ค่าเริ่มต้นของระบบ" }, ...devices.outputs.filter((d) => d.deviceId && d.deviceId !== "default").map((d, i) => ({ value: d.deviceId, label: d.label || `เอาต์พุต ${i + 1}` }))]}
+                />
+                <SelectField
+                  label="โหมดดีเลย์ (มีผลเมื่อเปิดหน้านี้ใหม่)"
+                  value={settings.latency}
+                  onChange={(value) => settings.set({ latency: value as typeof settings.latency })}
+                  options={[
+                    { value: "interactive", label: "ต่ำสุด — สายตรง/อินเทอร์เฟซ" },
+                    { value: "balanced", label: "สมดุล — เครื่องช้า/เสียงแตกกระตุก" },
+                  ]}
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-xs text-muted">
+                  <span>ระดับอินพุต {reading.clip ? <b className="text-danger">· สัญญาณแตก! ลดเกนที่อินเทอร์เฟซ</b> : null}</span>
+                  <span className="tabular-nums">{reading.peak > 0 ? `${(20 * Math.log10(reading.peak)).toFixed(1)} dBFS` : "—"}</span>
+                </div>
+                <div className="mt-1 h-3 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
+                  <div
+                    className={`h-full transition-[width] duration-75 ${reading.clip ? "bg-danger" : reading.peak > 0.7 ? "bg-amber" : "bg-olive"}`}
+                    style={{ width: `${Math.round(Math.min(1, reading.peak) * 100)}%` }}
+                  />
+                </div>
+                <label className="mt-3 flex items-center gap-3 text-sm">
+                  <span className="w-28 text-muted">ทริมอินพุต</span>
+                  <input
+                    type="range"
+                    min={-24}
+                    max={24}
+                    step={1}
+                    value={settings.inputTrimDb}
+                    className="flex-1"
+                    onChange={(event) => {
+                      const db = Number(event.target.value);
+                      settings.set({ inputTrimDb: db });
+                      engineRef.current?.setInputTrim(db);
+                    }}
+                  />
+                  <span className="w-14 text-right tabular-nums">{settings.inputTrimDb > 0 ? "+" : ""}{settings.inputTrimDb} dB</span>
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => void toggleLive()} className={liveOn ? solidBtn : ghostBtn}>
+                  <Mic className="size-4" aria-hidden="true" />
+                  {liveOn ? "ปิดไลน์อิน" : "เปิดไลน์อิน (ใช้ค่าที่เลือก)"}
+                </button>
+                <button type="button" onClick={() => void refreshDevices()} className={ghostBtn}>
+                  ค้นหาอุปกรณ์ใหม่
+                </button>
+                <span className="text-sm text-muted">ดีเลย์ประมาณ {latency} ms</span>
+              </div>
+              {liveError ? (
+                <p role="alert" className="text-sm text-danger">
+                  {liveError}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted">
+                เปิดไลน์อินแล้วเปลี่ยนอุปกรณ์ ให้ปิดและเปิดใหม่ · ปิดตัวลดเสียงรบกวน/ตัดเสียงสะท้อนของระบบอัตโนมัติแล้ว เพื่อไม่ให้เสียงกีตาร์ถูกบีบ · ตัวกันเสียงหอนจะตัดเสียงเมื่อพบเสียงค้างดังผิดปกติ
+              </p>
+            </section>
+          ) : null}
+        </div>
+
+        {/* Right: cabinet / mic */}
+        <aside className="panel flex flex-col gap-4 p-4">
+          <SelectField
+            label="Cabinet / IR"
+            value={rig.cab}
+            onChange={(value) => {
+              if (value === "ir" && !engineRef.current?.hasUserIr()) {
+                setView("ir");
+                return;
+              }
+              commit((current) => ({ ...current, cab: value as CabId }));
+            }}
+            options={famCabs.map((cab) => ({ value: cab.id, label: cab.name }))}
+          />
+          <div className="amp-grille mx-auto grid h-24 w-24 place-items-center rounded-md border-4 border-[#222]">
+            <span className="rounded bg-black/60 px-1 font-mono text-[10px] text-white/80">{rig.cab === "auto" ? "AUTO" : rig.cab.toUpperCase()}</span>
+          </div>
+          <SelectField
+            label="Mic"
+            value={rig.mic}
+            onChange={(value) => commit((current) => ({ ...current, mic: value as MicId }))}
+            options={MICS.map((mic) => ({ value: mic.id, label: `${mic.name} — ${mic.blurb}` }))}
+          />
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            <span className="flex justify-between">
+              <span>Room (ระยะไมค์/ห้อง)</span>
+              <span className="tabular-nums text-fg">{pct(rig.air)}%</span>
+            </span>
+            <input type="range" min={0} max={1} step={0.01} value={rig.air} onChange={(event) => commit((current) => ({ ...current, air: Number(event.target.value) }))} />
+          </label>
+          <div className="rounded-md bg-surface-2 p-3 text-xs">
+            <p className="font-semibold">จูนเนอร์ในตัว</p>
+            <p className={`mt-1 text-3xl font-semibold tabular-nums ${inTune ? "text-olive" : ""}`}>{pitch ? pitch.name : "–"}</p>
+            <p className="text-muted">
+              {pitch ? `${pitch.cents > 0 ? "+" : ""}${pitch.cents} เซนต์ · ${fretHint(pitch.midi, family)}` : "ดีดสายเพื่อดูโน้ต"}
+            </p>
+            {rig.source === "line" ? (
+              <div className="mt-2 flex gap-1">
+                <button type="button" onClick={() => setTuneAs("guitar")} className={chipSm(tuneAs === "guitar")}>
+                  กีตาร์
+                </button>
+                <button type="button" onClick={() => setTuneAs("bass")} className={chipSm(tuneAs === "bass")}>
+                  เบส
+                </button>
+              </div>
             ) : null}
           </div>
-          <div className="mt-2 flex justify-between text-xs text-muted">
-            <span>แบน</span>
-            <span>ตรง</span>
-            <span>ชาร์ป</span>
-          </div>
-          <label className="mt-4 flex items-center justify-between gap-3 text-xs text-muted" htmlFor="a4-ref">
-            <span>ความถี่ A</span>
-            <span className="tabular-nums text-fg">{rig.a4} Hz</span>
-          </label>
-          <input
-            id="a4-ref"
-            type="range"
-            min={430}
-            max={450}
-            step={1}
-            value={rig.a4}
-            onChange={(event) => commit((current) => ({ ...current, a4: Number(event.target.value) }))}
-          />
-          {rig.source === "line" ? (
-            <div className="mt-3 flex gap-2" aria-label="เทียบสาย">
-              <button type="button" onClick={() => setTuneAs("guitar")} className={chip(tuneAs === "guitar")}>
-                เทียบกีตาร์
-              </button>
-              <button type="button" onClick={() => setTuneAs("bass")} className={chip(tuneAs === "bass")}>
-                เทียบเบส
-              </button>
-            </div>
-          ) : null}
-        </article>
+        </aside>
+      </div>
 
-        <article className="rounded-lg border border-line bg-surface p-4">
-          <p className="text-xs font-medium text-muted">เมโทรนอม</p>
-          <div className="mt-3 flex items-center gap-2">
-            <IconButton label="ช้าลง" onClick={() => commit((current) => ({ ...current, bpm: Math.max(40, current.bpm - 1) }))}>
-              <Minus className="size-4" aria-hidden="true" />
-            </IconButton>
-            <p className="w-16 text-center text-3xl font-semibold tabular-nums">{rig.bpm}</p>
-            <IconButton label="เร็วขึ้น" onClick={() => commit((current) => ({ ...current, bpm: Math.min(240, current.bpm + 1) }))}>
-              <Plus className="size-4" aria-hidden="true" />
-            </IconButton>
-            <button
-              type="button"
-              onClick={() => commit((current) => ({ ...current, click: !current.click }))}
-              className={`ml-auto inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm font-semibold ${rig.click ? "bg-brass text-brass-ink" : "border border-line bg-surface-2"}`}
-            >
-              <Timer className="size-4" aria-hidden="true" />
-              {rig.click ? "ปิดคลิก" : "เปิดคลิก"}
-            </button>
-          </div>
-          <input
-            className="mt-3"
-            type="range"
-            min={40}
-            max={220}
-            step={1}
-            aria-label="ความเร็วเมโทรนอม"
-            value={rig.bpm}
-            onChange={(event) => commit((current) => ({ ...current, bpm: Number(event.target.value) }))}
-          />
-          <div className="mt-3 flex gap-2" aria-hidden="true">
-            {[0, 1, 2, 3].map((index) => (
-              <span key={index} className={`h-3 w-3 rounded-full ${rig.click && beat === index ? "bg-brass" : "bg-line"}`} />
-            ))}
-          </div>
-          <p className="mt-4 text-xs text-muted">คลิกอยู่ในเครื่องคุณ ไม่เดินตามเพลงประกอบ เปิดคู่กันได้</p>
-        </article>
-      </section>
-
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold">เพลงประกอบ</h2>
-          <p className="text-sm text-muted">{trackTitle || "ยังไม่ได้เปิดเพลง"}</p>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => fileRef.current?.click()} className={solidBtn}>
-            <Upload className="size-4" aria-hidden="true" />
-            นำเพลงมาซ้อม
-          </button>
-          <button type="button" onClick={() => void onPull()} className={ghostBtn}>
-            ใช้เพลงจากสตูดิโอ
-          </button>
-          <button type="button" onClick={() => void onDemo()} className={ghostBtn}>
-            เพลงตัวอย่าง
-          </button>
-          <button type="button" onClick={toggleBacking} disabled={!duration} className={ghostBtn}>
-            {backingOn ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
-            {backingOn ? "พักเพลง" : "เล่นเพลง"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !loop;
-              setLoop(next);
-              engineRef.current?.setBackingLoop(next);
-            }}
-            className={chip(loop)}
-          >
-            วนเพลง
-          </button>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <span className="text-xs tabular-nums text-muted">
-            {formatClock(clock)} / {formatClock(duration)}
-          </span>
-          <input
-            className="min-w-0 flex-1"
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.01}
-            disabled={!duration}
-            aria-label="ตำแหน่งเพลง"
-            value={Math.min(clock, duration || 0)}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setClock(next);
-              engineRef.current?.seekBacking(next);
-            }}
-          />
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Field label="ดังเพลง" value={`${Math.round(songLevel * 100)}`} id="song-level">
-            <input
-              id="song-level"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={songLevel}
-              onChange={(event) => {
-                const value = Number(event.target.value);
-                setSongLevel(value);
-                engineRef.current?.setBackingLevel(value);
-              }}
-            />
-          </Field>
-          <div>
-            <p className="text-xs text-muted">ความเร็วเพลง</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[0.75, 1, 1.25].map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setRate(value);
-                    engineRef.current?.setBackingRate(value);
-                  }}
-                  className={chip(rate === value)}
-                >
-                  {value === 1 ? "ปกติ" : `${value.toFixed(2)}×`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        {trackError ? (
-          <p role="alert" className="mt-3 text-sm text-brass">
-            {trackError}
-          </p>
-        ) : (
-          <p className="mt-3 text-xs text-muted">สเปซบาร์เล่นหรือพักเพลงประกอบ เพลงไม่ผ่านตู้แอมป์ เพื่อให้ได้ยินแบ็กกิ้งชัด</p>
-        )}
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) void onFile(file);
-          }}
-        />
-      </section>
-
+      {/* Play area */}
       {rig.source === "line" ? (
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">อินพุตกีตาร์หรือเบส</h2>
+            <h2 className="text-lg font-semibold">เสียบเครื่องจริง</h2>
             <button type="button" onClick={() => void toggleLive()} className={liveOn ? solidBtn : ghostBtn}>
               <Mic className="size-4" aria-hidden="true" />
               {liveOn ? "ปิดไลน์อิน" : "เปิดไลน์อิน"}
             </button>
+            <button type="button" onClick={() => setView("io")} className={ghostBtn}>
+              <Headphones className="size-4" aria-hidden="true" />
+              เลือกอุปกรณ์
+            </button>
+            <span className="ml-auto text-xs text-muted">ดีเลย์ ~{latency} ms</span>
           </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden="true">
-            <div className="h-full bg-olive" style={{ width: `${Math.round(reading.rms * 100)}%` }} />
-          </div>
-          <p className="mt-3 text-sm text-muted">เสียบอินเทอร์เฟซหรือไมค์หน้าตู้ ปิดการตัดเสียงสะท้อนของระบบแล้ว ใส่หูฟังก่อนเปิดเสียงดัง</p>
+          <MeterBars level={reading.rms} clip={reading.clip} />
           {liveError ? (
-            <p role="alert" className="mt-2 text-sm text-brass">
+            <p role="alert" className="mt-2 text-sm text-danger">
               {liveError}
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-2 text-xs text-muted">ใส่หูฟังก่อนเปิดเสียงดัง เพื่อกันเสียงหอน</p>
+          )}
         </section>
       ) : (
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold">{rig.source === "bass" ? "ฟิงเกอร์บอร์ดเบส" : "ฟิงเกอร์บอร์ดกีตาร์"}</h2>
             <div className="ml-auto flex items-center gap-2">
-              <IconButton
-                label="ลดคาโป"
-                onClick={() => commit((current) => ({ ...current, capo: Math.max(0, current.capo - 1) }))}
-              >
+              <IconButton label="ลดคาโป" onClick={() => commit((current) => ({ ...current, capo: Math.max(0, current.capo - 1) }))}>
                 <Minus className="size-4" aria-hidden="true" />
               </IconButton>
               <p className="min-w-16 text-center text-sm font-semibold tabular-nums">คาโป {rig.capo}</p>
-              <IconButton
-                label="เพิ่มคาโป"
-                onClick={() => commit((current) => ({ ...current, capo: Math.min(7, current.capo + 1) }))}
-              >
+              <IconButton label="เพิ่มคาโป" onClick={() => commit((current) => ({ ...current, capo: Math.min(7, current.capo + 1) }))}>
                 <Plus className="size-4" aria-hidden="true" />
               </IconButton>
             </div>
           </div>
-          <p className="mt-1 text-xs text-muted">แตะเฟรตเพื่อฟังผ่านตู้ แถวบนของคีย์บอร์ดคือเฟรต ปุ่ม 1 ถึง {strings.length} เลือกสาย</p>
+          <p className="mt-1 text-xs text-muted">แตะเฟรตเพื่อฟังผ่านแอมป์ · คีย์บอร์ด: แถว Q–\\ คือเฟรต, ปุ่ม 1–{strings.length} เลือกสาย</p>
           <div className="mt-3 overflow-x-auto">
             <div className="min-w-max">
               <div className="flex gap-1">
-                <span className="sticky left-0 w-12 shrink-0 bg-surface" />
+                <span className="sticky left-0 w-11 shrink-0 bg-surface" />
                 {FRETS.map((fret) => (
-                  <span key={fret} className="flex w-12 shrink-0 flex-col items-center text-xs text-muted">
+                  <span key={fret} className="flex w-11 shrink-0 flex-col items-center text-xs text-muted">
                     {fret}
-                    {DOTS.has(fret) ? <span className="mt-1 h-1.5 w-1.5 rounded-full bg-olive" /> : <span className="mt-1 h-1.5 w-1.5" />}
+                    {DOTS.has(fret) ? <span className="mt-1 h-1.5 w-1.5 rounded-full bg-brass" /> : <span className="mt-1 h-1.5 w-1.5" />}
                   </span>
                 ))}
               </div>
@@ -639,7 +983,7 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
                   <button
                     type="button"
                     onClick={() => setStringIndex(index)}
-                    className={`sticky left-0 z-10 h-12 w-12 shrink-0 rounded-md text-sm font-semibold ${stringIndex === index ? "bg-brass text-brass-ink" : "bg-surface text-muted"}`}
+                    className={`sticky left-0 z-10 h-11 w-11 shrink-0 rounded-md text-sm font-semibold ${stringIndex === index ? "bg-brass text-brass-ink" : "bg-surface text-muted"}`}
                   >
                     {string.name}
                   </button>
@@ -653,7 +997,7 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
                         aria-label={`สาย ${string.name} เฟรต ${fret}`}
                         aria-pressed={on}
                         onPointerDown={(event) => pointerDown(event.pointerId, note)}
-                        className={`h-12 w-12 shrink-0 rounded-md border text-xs font-medium ${on ? "border-brass bg-brass text-brass-ink" : "border-line bg-surface-2"}`}
+                        className={`h-11 w-11 shrink-0 touch-none rounded-md border text-xs font-medium ${on ? "border-brass bg-brass text-brass-ink" : "border-line bg-surface-2"}`}
                       >
                         {fret === 0 ? "เปิด" : fret}
                       </button>
@@ -666,265 +1010,412 @@ export function RigRoom({ pullStudio }: { pullStudio: () => Pull | null }) {
         </section>
       )}
 
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">เอฟเฟกต์ก้อน</h2>
-            <p className="text-sm text-muted">เรียงจากซ้ายเข้าตู้ เปิดปิดและหมุนได้ทีละก้อน สูงสุด {MAX_PEDALS} ก้อน</p>
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <article className="panel p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold">เพลงประกอบ (Backing)</h2>
+            <p className="truncate text-sm text-muted">{trackTitle || "ยังไม่ได้เปิดเพลง"}</p>
           </div>
-          <button type="button" onClick={() => retunePedals(() => [])} className={ghostBtn}>
-            ล้างก้อน
-          </button>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {PEDALS.map((pedal) => (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => fileRef.current?.click()} className={solidBtn}>
+              <Upload className="size-4" aria-hidden="true" />
+              นำเพลงมาซ้อม
+            </button>
+            <button type="button" onClick={() => void onPull()} className={ghostBtn}>
+              ใช้เพลงจากเครื่องมือแกะเพลง
+            </button>
+            <button type="button" onClick={() => void onDemo()} className={ghostBtn}>
+              เพลงตัวอย่าง
+            </button>
+            <button type="button" onClick={toggleBacking} disabled={!duration} className={ghostBtn}>
+              {backingOn ? <Pause className="size-4" aria-hidden="true" /> : <Play className="size-4" aria-hidden="true" />}
+              {backingOn ? "พัก" : "เล่น"}
+            </button>
             <button
-              key={pedal.kind}
               type="button"
-              disabled={rig.pedals.length >= MAX_PEDALS}
-              onClick={() => retunePedals((list) => [...list, makePedal(pedal.kind)])}
-              className={ghostBtn}
+              onClick={() => {
+                const next = !loop;
+                setLoop(next);
+                engineRef.current?.setBackingLoop(next);
+              }}
+              className={chip(loop)}
             >
-              <Plus className="size-4" aria-hidden="true" />
-              {pedal.name}
+              วนเพลง
             </button>
-          ))}
-        </div>
-        {rig.pedals.length === 0 ? <p className="mt-4 text-sm text-muted">บอร์ดว่าง เสียงเข้าตู้ตรง ๆ</p> : null}
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          {rig.pedals.map((pedal, index) => (
-            <PedalCard
-              key={pedal.id}
-              pedal={pedal}
-              index={index}
-              total={rig.pedals.length}
-              onToggle={() =>
-                retunePedals((list) => list.map((item) => (item.id === pedal.id ? { ...item, on: !item.on } : item)))
-              }
-              onParam={(key, value) =>
-                retunePedals((list) =>
-                  list.map((item) =>
-                    item.id === pedal.id ? { ...item, params: { ...item.params, [key]: value } } : item,
-                  ),
-                )
-              }
-              onMove={(dir) =>
-                retunePedals((list) => {
-                  const from = list.findIndex((item) => item.id === pedal.id);
-                  const to = from + dir;
-                  if (from < 0 || to < 0 || to >= list.length) return list;
-                  const next = list.slice();
-                  const [item] = next.splice(from, 1);
-                  next.splice(to, 0, item);
-                  return next;
-                })
-              }
-              onRemove={() => retunePedals((list) => list.filter((item) => item.id !== pedal.id))}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-xs tabular-nums text-muted">
+              {formatClock(clock)} / {formatClock(duration)}
+            </span>
+            <input
+              className="min-w-0 flex-1"
+              type="range"
+              min={0}
+              max={duration || 0}
+              step={0.01}
+              disabled={!duration}
+              aria-label="ตำแหน่งเพลง"
+              value={Math.min(clock, duration || 0)}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setClock(next);
+                engineRef.current?.seekBacking(next);
+              }}
             />
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <h2 className="text-lg font-semibold">ตู้แอมป์</h2>
-        <p className="mt-1 text-sm text-muted">รุ่นหลอดใช้เส้นอิ่มแบบอสมมาตรและแซก รุ่นโซลิดสะอาดกว่า ทั้งหมดเป็นวงจรในเบราว์เซอร์</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {RIG_PRESETS.map((preset) => (
-            <button key={preset.id} type="button" onClick={() => usePreset(preset.id)} className={ghostBtn}>
-              {preset.name}
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <AmpGroup title="กีตาร์" family="guitar" active={rig.amp} onPick={(id) => commit((current) => ({ ...current, amp: id }))} />
-          <AmpGroup title="เบส" family="bass" active={rig.amp} onPick={(id) => commit((current) => ({ ...current, amp: id }))} />
-        </div>
-        <p className="mt-4 text-sm">
-          <span className="font-semibold">{activeAmp.name}</span>
-          {activeAmp.tube ? <span className="ml-2 rounded-md bg-olive px-2 py-1 text-xs font-semibold text-brass-ink">หลอด</span> : <span className="ml-2 text-xs text-muted">โซลิด</span>}
-          <span className="mt-1 block text-muted">{activeAmp.blurb}</span>
-        </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {AMP_KNOBS.map((knob) => (
-            <Field key={knob.key} id={`amp-${knob.key}`} label={knob.label} value={`${Math.round(rig.knobs[knob.key] * 100)}`}>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-4">
+            <label className="flex min-w-[10rem] flex-1 items-center gap-2 text-xs text-muted">
+              ดังเพลง
               <input
-                id={`amp-${knob.key}`}
                 type="range"
                 min={0}
                 max={1}
                 step={0.01}
-                value={rig.knobs[knob.key]}
+                value={songLevel}
+                className="flex-1"
                 onChange={(event) => {
                   const value = Number(event.target.value);
-                  commit((current) => ({ ...current, knobs: { ...current.knobs, [knob.key]: value } }));
+                  setSongLevel(value);
+                  engineRef.current?.setBackingLevel(value);
                 }}
               />
-            </Field>
-          ))}
-        </div>
-      </section>
+            </label>
+            <div className="flex gap-1">
+              {[0.5, 0.75, 1, 1.25].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setRate(value);
+                    engineRef.current?.setBackingRate(value);
+                  }}
+                  className={chipSm(rate === value)}
+                >
+                  {Math.round(value * 100)}%
+                </button>
+              ))}
+            </div>
+          </div>
+          {trackError ? (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              {trackError}
+            </p>
+          ) : null}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void onFile(file);
+            }}
+          />
+        </article>
 
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <h2 className="text-lg font-semibold">แอมเบียนหลังตู้</h2>
-        <p className="mt-1 text-sm text-muted">ห้อง โถง สปริง หรือเพลท ผสมหลังลำโพงจำลอง ไม่ได้อยู่ในก้อน</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {ROOMS.map((room) => (
-            <button
-              key={room.id}
-              type="button"
-              onClick={() => commit((current) => ({ ...current, ambience: { ...current.ambience, kind: room.id } }))}
-              className={chip(rig.ambience.kind === room.id)}
-            >
-              {room.name}
+        <article className="panel p-4">
+          <p className="text-sm font-semibold">เมโทรนอม</p>
+          <div className="mt-3 flex items-center gap-2">
+            <IconButton label="ช้าลง" onClick={() => commit((current) => ({ ...current, bpm: Math.max(40, current.bpm - 1) }))}>
+              <ChevronLeft className="size-4" aria-hidden="true" />
+            </IconButton>
+            <p className="w-16 text-center text-3xl font-semibold tabular-nums">{rig.bpm}</p>
+            <IconButton label="เร็วขึ้น" onClick={() => commit((current) => ({ ...current, bpm: Math.min(240, current.bpm + 1) }))}>
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </IconButton>
+            <button type="button" onClick={() => commit((current) => ({ ...current, click: !current.click }))} className={`ml-auto ${chip(rig.click)}`}>
+              <Timer className="size-4" aria-hidden="true" />
+              {rig.click ? "ปิด" : "เปิด"}
             </button>
-          ))}
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <AmbienceKnob
-            label="หาง"
-            value={rig.ambience.decay}
-            text={`${Math.round(rig.ambience.decay * 100)}`}
-            onChange={(decay) => commit((current) => ({ ...current, ambience: { ...current.ambience, decay } }))}
-          />
-          <AmbienceKnob
-            label="มิกซ์"
-            value={rig.ambience.mix}
-            text={`${Math.round(rig.ambience.mix * 100)}`}
-            onChange={(mix) => commit((current) => ({ ...current, ambience: { ...current.ambience, mix } }))}
-          />
-          <AmbienceKnob
-            label="โทน"
-            value={rig.ambience.tone}
-            text={`${Math.round(rig.ambience.tone * 100)}`}
-            onChange={(tone) => commit((current) => ({ ...current, ambience: { ...current.ambience, tone } }))}
-          />
-        </div>
+          </div>
+          <div className="mt-3 flex gap-2" aria-hidden="true">
+            {[0, 1, 2, 3].map((index) => (
+              <span key={index} className={`h-3 flex-1 rounded-full ${rig.click && beat === index ? (index === 0 ? "bg-amber" : "bg-brass") : "bg-line"}`} />
+            ))}
+          </div>
+        </article>
       </section>
-
-      <section className="grid gap-4 rounded-lg border border-line bg-surface p-4 sm:grid-cols-2">
-        <Field label="อินพุตเข้าบอร์ด" value={`${Math.round(rig.input * 100)}`} id="rig-input">
-          <input
-            id="rig-input"
-            type="range"
-            min={0}
-            max={1.5}
-            step={0.01}
-            value={rig.input}
-            onChange={(event) => commit((current) => ({ ...current, input: Number(event.target.value) }))}
-          />
-        </Field>
-        <Field label="ความดังหลัก" value={`${Math.round(rig.master * 100)}`} id="rig-master">
-          <input
-            id="rig-master"
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={rig.master}
-            onChange={(event) => commit((current) => ({ ...current, master: Number(event.target.value) }))}
-          />
-        </Field>
-      </section>
-      <p className="text-xs text-muted">
-        จำลองด้วยเวฟเชปเปอร์ ฟิลเตอร์ และคอนโวลฟ์ในเบราว์เซอร์ ไม่ได้โหลดโมเดลหลอดจากโรงงาน ได้คาแรกเตอร์พอซ้อมและลองโทน
-        ถ้าเปิดไลน์อินให้ใส่หูฟัง
-      </p>
     </main>
   );
 }
 
-const solidBtn = "inline-flex h-11 items-center gap-2 rounded-md bg-brass px-3 text-sm font-semibold text-brass-ink";
-const ghostBtn = "inline-flex h-11 items-center gap-2 rounded-md border border-line bg-surface-2 px-3 text-sm font-medium";
+// ── persistence for user presets ────────────────────────────────────────────
+type UserPreset = { id: string; name: string; rig: RigSnapshot };
 
-function chip(active: boolean): string {
-  return `inline-flex h-11 items-center rounded-md px-3 text-sm font-medium ${active ? "bg-brass text-brass-ink" : "border border-line bg-surface-2"}`;
+function readUserPresets(): UserPreset[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem("jamstudio-user-presets") ?? "[]") as unknown;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((item): item is UserPreset => !!item && typeof item === "object" && typeof (item as UserPreset).id === "string" && typeof (item as UserPreset).name === "string")
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
 }
 
-function SourceButton({
-  active,
-  onClick,
-  icon: Icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: typeof Guitar;
-  label: string;
-}) {
+function writeUserPresets(list: UserPreset[]) {
+  try {
+    localStorage.setItem("jamstudio-user-presets", JSON.stringify(list));
+  } catch {
+    // storage full
+  }
+}
+
+// ── small UI pieces ────────────────────────────────────────────────────────
+const solidBtn = "inline-flex h-10 items-center gap-2 rounded-md bg-brass px-3 text-sm font-semibold text-brass-ink";
+const ghostBtn = "inline-flex h-10 items-center gap-2 rounded-md border border-line bg-surface-2 px-3 text-sm font-medium";
+
+function chip(active: boolean): string {
+  return `inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium ${active ? "bg-brass text-brass-ink" : "border border-line bg-surface-2"}`;
+}
+function chipSm(active: boolean): string {
+  return `inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium ${active ? "bg-brass text-brass-ink" : "border border-line bg-surface-2"}`;
+}
+function pct(value: number): string {
+  return `${Math.round(value * 100)}`;
+}
+
+function SourceTab({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
-    <button type="button" onClick={onClick} className={chip(active)}>
-      <Icon className="size-4" aria-hidden="true" />
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`h-9 rounded-md px-4 text-sm font-semibold ${active ? "bg-brass/25 text-fg ring-1 ring-brass" : "text-muted"}`}
+    >
       {label}
     </button>
   );
 }
 
-function IconButton({
-  label,
-  onClick,
-  disabled = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: ReactNode;
-}) {
+function IconButton({ label, onClick, disabled = false, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      disabled={disabled}
-      className="grid h-11 w-11 place-items-center rounded-md border border-line bg-surface-2"
-    >
+    <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className="grid h-10 w-10 place-items-center rounded-md border border-line bg-surface-2">
       {children}
     </button>
   );
 }
 
-function Field({ id, label, value, children }: { id: string; label: string; value: string; children: ReactNode }) {
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
   return (
-    <label htmlFor={id} className="flex flex-col gap-1 text-xs text-muted">
-      <span className="flex items-center justify-between gap-2">
-        <span>{label}</span>
-        <span className="tabular-nums text-fg">{value}</span>
-      </span>
-      {children}
+    <label className="flex flex-col gap-1 text-xs text-muted">
+      {label}
+      <select
+        value={options.some((option) => option.value === value) ? value : options[0]?.value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 rounded-md border border-line bg-surface-2 px-2 text-sm text-fg"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
 
-function AmbienceKnob({
-  label,
-  value,
-  text,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  text: string;
-  onChange: (value: number) => void;
-}) {
-  const id = useId();
+function MeterBars({ level, clip }: { level: number; clip: boolean }) {
+  const bars = 24;
+  const lit = Math.round(Math.min(1, level) * bars);
   return (
-    <Field id={id} label={label} value={text}>
-      <input id={id} type="range" min={0} max={1} step={0.01} value={value} onChange={(event) => onChange(Number(event.target.value))} />
-    </Field>
+    <div className="mt-3 flex h-6 items-end gap-[3px]" aria-hidden="true">
+      {Array.from({ length: bars }, (_, i) => (
+        <span
+          key={i}
+          className="flex-1 rounded-sm"
+          style={{
+            height: `${40 + (i / bars) * 60}%`,
+            background: i < lit ? (clip || i > bars * 0.85 ? "var(--color-danger)" : i > bars * 0.65 ? "var(--color-amber)" : "var(--color-olive)") : "var(--color-line)",
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
-function AmpGroup({
-  title,
-  family,
-  active,
-  onPick,
+const SHORT: Record<string, string> = {
+  gate: "Gate",
+  comp: "Comp",
+  drive: "Drive",
+  dist: "Dist",
+  fuzz: "Fuzz",
+  octave: "Octave",
+  wah: "Wah",
+  eq: "EQ",
+  chorus: "Chorus",
+  phaser: "Phase",
+  flanger: "Flanger",
+  tremolo: "Trem",
+  delay: "Delay",
+  spring: "Reverb",
+  boost: "Boost",
+  klon: "Clear OD",
+  univibe: "Vibe",
+  varitone: "Varitone",
+};
+
+function TunerStomp({ hz, pitchName, inTune }: { hz: number; pitchName: string; inTune: boolean }) {
+  return (
+    <div className="flex h-[118px] w-[74px] shrink-0 flex-col items-center justify-between rounded-lg border border-black/40 bg-[#2a2d33] p-1.5 shadow-lg">
+      <div className={`grid h-9 w-full place-items-center rounded bg-black font-mono text-sm ${inTune ? "text-olive" : "text-brass"}`}>{hz > 0 ? pitchName : "--"}</div>
+      <span className="text-[11px] font-semibold text-white/90">Tuner</span>
+      <span className="h-6 w-6 rounded-full border-2 border-white/40 bg-gradient-to-b from-zinc-300 to-zinc-500" />
+    </div>
+  );
+}
+
+function Stomp({ pedal, focused, onFocus, onToggle }: { pedal: PedalState; focused: boolean; onFocus: () => void; onToggle: () => void }) {
+  const color = PEDAL_COLORS[pedal.kind];
+  const meta = pedalMeta(pedal.kind);
+  return (
+    <div
+      className={`relative flex h-[118px] w-[74px] shrink-0 flex-col items-center justify-between rounded-lg border p-1.5 shadow-lg transition ${focused ? "border-white ring-2 ring-brass" : "border-black/40"}`}
+      style={{ background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 70%, black))` }}
+    >
+      <button type="button" onClick={onFocus} aria-label={`ปรับ ${meta.name}`} aria-pressed={focused} className="flex w-full flex-col items-center gap-1">
+        <span className="flex gap-1.5" aria-hidden="true">
+          {meta.knobs.slice(0, 3).map((knob) => (
+            <span key={knob.key} className="knob-cap block h-4 w-4 rounded-full" />
+          ))}
+        </span>
+        <span className={`h-1.5 w-1.5 rounded-full ${pedal.on ? "bg-red-500 shadow-[0_0_6px_2px_rgba(239,68,68,0.8)]" : "bg-black/50"}`} aria-hidden="true" />
+        <span className="max-w-full truncate text-[11px] font-bold text-white drop-shadow">{SHORT[pedal.kind] ?? meta.name}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={pedal.on}
+        aria-label={`${pedal.on ? "ปิด" : "เปิด"} ${meta.name}`}
+        className="h-7 w-7 rounded-full border-2 border-white/50 bg-gradient-to-b from-zinc-200 to-zinc-500 active:translate-y-px"
+      />
+    </div>
+  );
+}
+
+function PedalEditor({
+  pedal,
+  index,
+  total,
+  onParam,
+  onToggle,
+  onMove,
+  onRemove,
 }: {
-  title: string;
-  family: "guitar" | "bass";
-  active: AmpId;
-  onPick: (id: AmpId) => void;
+  pedal: PedalState;
+  index: number;
+  total: number;
+  onParam: (key: string, value: number) => void;
+  onToggle: () => void;
+  onMove: (dir: -1 | 1) => void;
+  onRemove: () => void;
 }) {
+  const meta = pedalMeta(pedal.kind);
+  return (
+    <div className="mt-2 rounded-lg border border-line bg-bg/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="h-4 w-4 rounded" style={{ background: PEDAL_COLORS[pedal.kind] }} aria-hidden="true" />
+        <h3 className="text-sm font-semibold">
+          {index + 1}. {meta.name}
+        </h3>
+        <span className="text-xs text-muted">{meta.blurb}</span>
+        <div className="ml-auto flex gap-1">
+          <button type="button" onClick={onToggle} className={chipSm(pedal.on)}>
+            {pedal.on ? "เปิดอยู่" : "ปิดอยู่"}
+          </button>
+          <IconButton label="ย้ายไปซ้าย" disabled={index === 0} onClick={() => onMove(-1)}>
+            <ChevronLeft className="size-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton label="ย้ายไปขวา" disabled={index === total - 1} onClick={() => onMove(1)}>
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton label={`เอา ${meta.name} ออก`} onClick={onRemove}>
+            <Trash2 className="size-4" aria-hidden="true" />
+          </IconButton>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap justify-around gap-4">
+        {meta.knobs.map((knob) => {
+          const value = pedal.params[knob.key] ?? knob.def;
+          return (
+            <Knob
+              key={knob.key}
+              label={knob.label}
+              value={value}
+              min={knob.min}
+              max={knob.max}
+              step={knob.unit === "step" ? 1 : undefined}
+              display={formatKnob(knob, value)}
+              size={52}
+              onChange={(next) => onParam(knob.key, next)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AmpHead({
+  name,
+  tube,
+  knobs,
+  onKnob,
+  onPower,
+}: {
+  name: string;
+  tube: boolean;
+  knobs: RigSnapshot["knobs"];
+  onKnob: (key: keyof RigSnapshot["knobs"], value: number) => void;
+  onPower: () => void;
+}) {
+  return (
+    <div className="amp-tolex overflow-hidden rounded-xl border-2 border-[#2b2b2b] p-2 shadow-2xl">
+      <div className="amp-grille grid h-16 place-items-center rounded-md border border-black/60 sm:h-20">
+        <span className="px-2 text-center font-[family-name:var(--font-script)] text-2xl italic text-[#f3e6c4] drop-shadow sm:text-3xl">{name}</span>
+      </div>
+      <div className="amp-plate mt-2 flex flex-wrap items-end justify-around gap-x-2 gap-y-3 rounded-md px-2 py-3">
+        <button type="button" onClick={onPower} aria-label="เปิดเสียงใหม่ (ถ้าถูกตัดเพราะเสียงหอน)" className="flex flex-col items-center gap-1">
+          <span className={`h-3 w-3 rounded-full ${tube ? "bg-red-600 shadow-[0_0_8px_2px_rgba(220,38,38,0.7)]" : "bg-amber"}`} />
+          <span className="text-[10px] font-semibold text-[#3a2a08]">{tube ? "TUBE" : "SS"}</span>
+        </button>
+        {AMP_KNOBS.map((knob) => (
+          <div key={knob.key} className="[&_span]:!text-[#3a2a08]">
+            <Knob label={knob.label} value={knobs[knob.key]} variant="gold" size={40} display={(knobs[knob.key] * 10).toFixed(1)} onChange={(value) => onKnob(knob.key, value)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Cabinet({ label }: { label: string }) {
+  return (
+    <div className="amp-tolex hidden flex-col rounded-xl border-2 border-[#2b2b2b] p-2 shadow-2xl sm:flex">
+      <div className="amp-grille grid flex-1 place-items-center rounded-md border border-black/60">
+        <span className="px-1 text-center font-[family-name:var(--font-script)] text-xl italic text-[#f3e6c4]">{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function AmpGroup({ title, family, active, onPick }: { title: string; family: "guitar" | "bass"; active: AmpId; onPick: (id: AmpId) => void }) {
   return (
     <div>
       <p className="text-xs font-medium text-muted">{title}</p>
@@ -934,11 +1425,11 @@ function AmpGroup({
             key={amp.id}
             type="button"
             onClick={() => onPick(amp.id)}
-            className={`rounded-md border px-3 py-2 text-left ${active === amp.id ? "border-brass bg-surface-2" : "border-line"}`}
+            className={`rounded-md border px-3 py-2 text-left ${active === amp.id ? "border-brass bg-brass/10" : "border-line bg-surface-2"}`}
           >
             <span className="flex items-center gap-2 text-sm font-semibold">
               {amp.name}
-              {amp.tube ? <span className="rounded-md bg-olive px-1.5 py-0.5 text-xs text-brass-ink">หลอด</span> : null}
+              {amp.tube ? <span className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] text-amber">หลอด</span> : <span className="rounded bg-line px-1.5 py-0.5 text-[10px] text-muted">โซลิด</span>}
             </span>
             <span className="mt-1 block text-xs text-muted">{amp.blurb}</span>
           </button>
@@ -948,72 +1439,3 @@ function AmpGroup({
   );
 }
 
-function PedalCard({
-  pedal,
-  index,
-  total,
-  onToggle,
-  onParam,
-  onMove,
-  onRemove,
-}: {
-  pedal: PedalState;
-  index: number;
-  total: number;
-  onToggle: () => void;
-  onParam: (key: string, value: number) => void;
-  onMove: (dir: -1 | 1) => void;
-  onRemove: () => void;
-}) {
-  const meta = pedalMeta(pedal.kind);
-  return (
-    <article className={`rounded-lg border p-3 ${pedal.on ? "border-brass bg-surface-2" : "border-line bg-bg"}`}>
-      <div className="flex flex-wrap items-start gap-2">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={pedal.on}
-          className={`h-11 shrink-0 rounded-md px-3 text-sm font-semibold ${pedal.on ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
-        >
-          {pedal.on ? "เปิด" : "ปิด"}
-        </button>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold">
-            {index + 1}. {meta.name}
-          </h3>
-          <p className="text-xs text-muted">{meta.blurb}</p>
-        </div>
-        <div className="flex shrink-0 gap-1">
-          <IconButton label="เลื่อนไปก่อนหน้า" disabled={index === 0} onClick={() => onMove(-1)}>
-            <ChevronUp className="size-4" aria-hidden="true" />
-          </IconButton>
-          <IconButton label="เลื่อนไปถัดไป" disabled={index === total - 1} onClick={() => onMove(1)}>
-            <ChevronDown className="size-4" aria-hidden="true" />
-          </IconButton>
-          <IconButton label={`เอา ${meta.name} ออก`} onClick={onRemove}>
-            <Trash2 className="size-4" aria-hidden="true" />
-          </IconButton>
-        </div>
-      </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        {meta.knobs.map((knob) => {
-          const id = `${pedal.id}-${knob.key}`;
-          const value = pedal.params[knob.key] ?? knob.def;
-          return (
-            <Field key={knob.key} id={id} label={knob.label} value={formatKnob(knob, value)}>
-              <input
-                id={id}
-                type="range"
-                min={knob.min}
-                max={knob.max}
-                step={(knob.max - knob.min) / 100}
-                value={value}
-                onChange={(event) => onParam(knob.key, Number(event.target.value))}
-              />
-            </Field>
-          );
-        })}
-      </div>
-    </article>
-  );
-}

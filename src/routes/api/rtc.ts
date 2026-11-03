@@ -6,5 +6,5 @@ async function handle({ request }: { request: Request }) {
 }
 
 export const Route = createFileRoute("/api/rtc")({
-  server: { handlers: { GET: handle, POST: handle } },
+  server: { handlers: { GET: handle, POST: handle, OPTIONS: handle } },
 });

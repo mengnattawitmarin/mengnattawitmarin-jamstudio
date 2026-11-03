@@ -17,6 +17,11 @@ export class MixPlayer {
   mode: "original" | "stems" = "original";
   rate = 1;
   metronome = false;
+  /**
+   * Pre-rendered WSOLA versions (pitch kept / key shifted) for `processed.rate`.
+   * They play at playbackRate 1; song time still advances at `rate`.
+   */
+  processed: { rate: number; semitones: number; original: AudioBuffer | null; stems: Map<StemId, AudioBuffer> } | null = null;
   private offset = 0;
   private startedAt = 0;
   private playing = false;
@@ -61,13 +66,20 @@ export class MixPlayer {
     if (startAt >= this.duration - 0.05) this.offset = 0;
     this.startedAt = ctx.currentTime;
     this.playing = true;
+    const proc = this.processed && Math.abs(this.processed.rate - this.rate) < 1e-6 ? this.processed : null;
     if (this.mode === "original" && this.original) {
-      this.spawn(this.original, this.master!);
+      const alt = proc?.original;
+      if (alt) this.spawn(alt, this.master!, 1 / this.rate, 1);
+      else this.spawn(this.original, this.master!);
     } else {
       for (const id of STEM_IDS) {
-        const buffer = this.stems.get(id);
+        const alt = proc?.stems.get(id);
+        const buffer = alt ?? this.stems.get(id);
         const gain = this.stemGains.get(id);
-        if (buffer && gain) this.spawn(buffer, gain);
+        if (buffer && gain) {
+          if (alt) this.spawn(alt, gain, 1 / this.rate, 1);
+          else this.spawn(buffer, gain);
+        }
       }
     }
     this.armMetronome();
@@ -118,13 +130,13 @@ export class MixPlayer {
     }
   }
 
-  private spawn(buffer: AudioBuffer, target: AudioNode) {
+  private spawn(buffer: AudioBuffer, target: AudioNode, offsetScale = 1, playRate = this.rate) {
     const ctx = this.ctx!;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = this.rate;
+    source.playbackRate.value = playRate;
     source.connect(target);
-    const offset = Math.min(this.offset, Math.max(0, buffer.duration - 0.01));
+    const offset = Math.min(this.offset * offsetScale, Math.max(0, buffer.duration - 0.01));
     source.start(0, offset);
     this.sources.push(source);
   }

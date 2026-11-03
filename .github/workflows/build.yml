@@ -1,0 +1,178 @@
+name: Build JamStudio (Web · Android · iOS)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  CAP_VERSION: "7"
+  # Optional: absolute URL of the deployed web app that hosts /api/rtc
+  # (Settings → Secrets and variables → Actions → Variables → JAMSTUDIO_API_BASE).
+  VITE_API_BASE: ${{ vars.JAMSTUDIO_API_BASE }}
+
+jobs:
+  web:
+    name: Check + build web bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build mobile/PWA bundle
+        run: npm run build:mobile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mobile
+          path: dist-mobile
+          retention-days: 7
+
+  pages:
+    name: Deploy PWA to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: web
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-mobile
+          path: dist-mobile
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-mobile
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  android:
+    name: Android APK
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-mobile
+          path: dist-mobile
+      - run: npm ci --no-audit --no-fund
+      - name: Install Capacitor
+        run: npm install --no-save --no-audit --no-fund @capacitor/core@${CAP_VERSION} @capacitor/cli@${CAP_VERSION} @capacitor/android@${CAP_VERSION} @capacitor/assets@3
+      - name: Create Android project
+        run: |
+          npx cap add android
+          node tool/patch-native.mjs android
+          npx capacitor-assets generate --android --iconBackgroundColor '#0a1020' --iconBackgroundColorDark '#0a1020' --splashBackgroundColor '#0a1020' --splashBackgroundColorDark '#0a1020' || echo "asset generation skipped"
+          npx cap sync android
+      - name: Build APK
+        run: |
+          mkdir -p ~/.android
+          cp tool/signing/debug.keystore ~/.android/debug.keystore
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/JamStudio-${{ github.run_number }}.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: out/*.apk
+
+  ios:
+    name: iOS (unsigned .ipa)
+    needs: web
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-mobile
+          path: dist-mobile
+      - run: npm ci --no-audit --no-fund
+      - name: Install Capacitor
+        run: npm install --no-save --no-audit --no-fund @capacitor/core@${CAP_VERSION} @capacitor/cli@${CAP_VERSION} @capacitor/ios@${CAP_VERSION} @capacitor/assets@3
+      - name: Create iOS project
+        run: |
+          npx cap add ios
+          node tool/patch-native.mjs ios
+          npx capacitor-assets generate --ios --iconBackgroundColor '#0a1020' --splashBackgroundColor '#0a1020' || echo "asset generation skipped"
+          npx cap sync ios
+      - name: Build unsigned archive
+        run: |
+          cd ios/App
+          if [ -d App.xcworkspace ]; then TARGET="-workspace App.xcworkspace"; else TARGET="-project App.xcodeproj"; fi
+          xcodebuild $TARGET -scheme App -configuration Release -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tail -n 40
+      - name: Package .ipa
+        run: |
+          mkdir -p out Payload
+          cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" Payload/
+          zip -qr out/JamStudio-${{ github.run_number }}-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: out/*.ipa
+
+  release:
+    name: Publish release
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [web, android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Zip web bundle
+        run: cd artifacts && zip -qr JamStudio-web-${{ github.run_number }}.zip dist-mobile
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FILES=$(ls artifacts/android-apk/*.apk artifacts/JamStudio-web-*.zip artifacts/ios-ipa/*.ipa 2>/dev/null || true)
+          gh release create "build-${{ github.run_number }}" $FILES \
+            --repo "${{ github.repository }}" \
+            --title "JamStudio build ${{ github.run_number }}" \
+            --notes "อัตโนมัติจาก commit ${{ github.sha }}
+
+          - **Android**: ดาวน์โหลด \`.apk\` แล้วติดตั้ง (อนุญาต 'ติดตั้งแอปที่ไม่รู้จัก')
+          - **iPhone**: ใช้เว็บแอป (GitHub Pages) → แชร์ → เพิ่มลงในหน้าจอโฮม หรือเซ็น \`.ipa\` ด้วย Apple ID ผ่าน Sideloadly/AltStore
+          - **Web**: \`JamStudio-web.zip\` เป็นไฟล์ static วางบนโฮสต์ใดก็ได้" \
+            --latest

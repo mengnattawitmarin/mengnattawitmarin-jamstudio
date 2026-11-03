@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { MessageSquare, Send, Share2, UserPlus } from "lucide-react";
+import { useSettings, getSettings } from "@/lib/settings";
 import {
   AudioLines,
   Copy,
@@ -117,26 +119,56 @@ function chordLabel(rootPc: number, step: number, minor: boolean): string {
   return `${PC_NAMES[(rootPc + step) % 12]}${minor ? "m" : ""}`;
 }
 
-export function JamRoom() {
-  const [name, setName] = useState("นักดนตรี");
+type ChatLine = { id: string; from: string; name: string; text: string; at: number; mine: boolean };
+
+export function JamRoom({
+  active = true,
+  onStatus,
+}: {
+  active?: boolean;
+  onStatus?: (inRoom: boolean, online: number, leave: () => void) => void;
+}) {
+  const savedName = useSettings((state) => state.name);
+  const setSettings = useSettings((state) => state.set);
+  const [name, setName] = useState(savedName);
   const [draft, setDraft] = useState("");
   const [room, setRoom] = useState<string | null>(null);
   const [player, setPlayer] = useState("นักดนตรี");
 
+  useEffect(() => setName(savedName), [savedName]);
+
   useEffect(() => {
-    const saved = localStorage.getItem("lane-jam-name");
-    if (saved) setName(saved);
+    try {
+      const code = new URLSearchParams(window.location.search).get("room");
+      if (code && /^[A-Za-z0-9]{4}$/.test(code)) setDraft(code.toUpperCase());
+    } catch {
+      // no URL params
+    }
   }, []);
+
+  useEffect(() => {
+    if (!room) onStatus?.(false, 0, () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room]);
 
   function enter(code: string) {
     const clean = name.replace(/[\u0000-\u001f]/g, "").trim().slice(0, 32) || "นักดนตรี";
-    localStorage.setItem("lane-jam-name", clean);
+    setSettings({ name: clean });
     setPlayer(clean);
     setRoom(`jam-${code.toUpperCase()}`);
   }
 
   if (room) {
-    return <Session key={`${room}:${player}`} room={room} name={player} onLeave={() => setRoom(null)} />;
+    return (
+      <Session
+        key={`${room}:${player}`}
+        room={room}
+        name={player}
+        active={active}
+        onCount={(online) => onStatus?.(true, online, () => setRoom(null))}
+        onLeave={() => setRoom(null)}
+      />
+    );
   }
 
   return (
@@ -151,7 +183,7 @@ export function JamRoom() {
       </section>
       <section className="grid gap-4 lg:grid-cols-2">
         <form
-          className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+          className="flex flex-col gap-3 panel p-4"
           onSubmit={(event) => {
             event.preventDefault();
             enter(makeCode());
@@ -172,7 +204,7 @@ export function JamRoom() {
           </button>
         </form>
         <form
-          className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+          className="flex flex-col gap-3 panel p-4"
           onSubmit={(event) => {
             event.preventDefault();
             const code = draft.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
@@ -198,17 +230,17 @@ export function JamRoom() {
         </form>
       </section>
       <ul className="grid gap-3 sm:grid-cols-3">
-        <li className="rounded-lg border border-line bg-surface p-4 text-sm">
+        <li className="panel p-4 text-sm">
           <Piano className="size-5 text-brass" aria-hidden="true" />
           <p className="mt-3 font-semibold">เครื่องบนจอ</p>
           <p className="mt-1 text-muted">เปียโน เบส กีตาร์ กลอง ลีด สัมผัสแล้วได้ยินทันที</p>
         </li>
-        <li className="rounded-lg border border-line bg-surface p-4 text-sm">
+        <li className="panel p-4 text-sm">
           <Mic className="size-5 text-brass" aria-hidden="true" />
           <p className="mt-3 font-semibold">ไลน์อินเครื่องจริง</p>
           <p className="mt-1 text-muted">มอนิเตอร์ในหูคุณตรง ๆ เพื่อนได้ยินผ่านเส้นตรง</p>
         </li>
-        <li className="rounded-lg border border-line bg-surface p-4 text-sm">
+        <li className="panel p-4 text-sm">
           <Timer className="size-5 text-brass" aria-hidden="true" />
           <p className="mt-3 font-semibold">คลิกไม่เดินทาง</p>
           <p className="mt-1 text-muted">เมโทรนอมอยู่ในเครื่องคุณ จังหวะจึงไม่ตามหลังเน็ต</p>
@@ -218,8 +250,26 @@ export function JamRoom() {
   );
 }
 
-function Session({ room, name, onLeave }: { room: string; name: string; onLeave: () => void }) {
+function Session({
+  room,
+  name,
+  active,
+  onCount,
+  onLeave,
+}: {
+  room: string;
+  name: string;
+  active: boolean;
+  onCount: (online: number) => void;
+  onLeave: () => void;
+}) {
   const code = room.slice(4);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const [chat, setChat] = useState<ChatLine[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [unread, setUnread] = useState(0);
+  const chatEnd = useRef<HTMLDivElement>(null);
   const synthRef = useRef<JamSynth | null>(null);
   const p2pRef = useRef<P2PRoom | null>(null);
   const instRef = useRef<InstrumentId>("piano");
@@ -293,6 +343,25 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
         }
       },
       onMessage: (from, data) => {
+        if (data && typeof data === "object" && (data as { k?: unknown }).k === "chat") {
+          const raw = data as { text?: unknown; name?: unknown; at?: unknown };
+          if (typeof raw.text !== "string") return;
+          const text = raw.text.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 500);
+          if (!text) return;
+          setChat((prev) => [
+            ...prev.slice(-199),
+            {
+              id: `${from}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              from,
+              name: typeof raw.name === "string" ? raw.name.slice(0, 32) : "เพื่อน",
+              text,
+              at: Date.now(),
+              mine: false,
+            },
+          ]);
+          setUnread((n) => n + 1);
+          return;
+        }
         const msg = parseWire(data);
         if (!msg) return;
         if (msg.k === "who") {
@@ -393,7 +462,7 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
-      if (event.repeat) return;
+      if (event.repeat || !activeRef.current) return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       const inst = instRef.current;
@@ -532,15 +601,15 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
     setLiveError("");
     try {
       await synth.resume();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          channelCount: 1,
-        },
-        video: false,
-      });
+      const prefs = getSettings();
+      const audio: MediaTrackConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 1,
+      };
+      if (prefs.inputDeviceId && prefs.inputDeviceId !== "default") audio.deviceId = { exact: prefs.inputDeviceId };
+      const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
       const src = synth.ctx.createMediaStreamSource(stream);
       const analyser = synth.ctx.createAnalyser();
       analyser.fftSize = 512;
@@ -570,8 +639,142 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
   const base = baseMidiFor(instrument) + octave * 12;
   const connected = peers.filter((peer) => peer.connectionState === "connected").length;
 
+  useEffect(() => {
+    onCount(1 + connected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected]);
+
+  useEffect(() => {
+    chatEnd.current?.scrollIntoView({ block: "nearest" });
+  }, [chat.length]);
+
+  function sendChat() {
+    const text = chatDraft.trim().slice(0, 500);
+    if (!text) return;
+    p2pRef.current?.send({ k: "chat", text, name });
+    setChat((prev) => [...prev.slice(-199), { id: `me-${Date.now()}`, from: selfId, name, text, at: Date.now(), mine: true }]);
+    setChatDraft("");
+    setUnread(0);
+  }
+
+  async function invite() {
+    const url = typeof window !== "undefined" && window.location.protocol.startsWith("http") ? `${window.location.origin}${window.location.pathname}?room=${code}` : "";
+    const text = `มาแจมกันใน JamStudio! รหัสห้อง ${code}${url ? `\n${url}` : ""}`;
+    try {
+      if (navigator.share) await navigator.share({ title: "JamStudio", text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1400);
+      }
+    } catch {
+      // user cancelled share
+    }
+  }
+
+  const members = [
+    { id: selfId, name: `${name}`, me: true, inst: instrumentName(instrument), lvl: liveOn ? level : Object.keys(pressed).length ? 0.6 : 0, rtt: null as number | null, state: "connected" as RTCPeerConnectionState | "connected" },
+    ...peers.map((peer) => ({
+      id: peer.id,
+      name: peer.name || "เพื่อน",
+      me: false,
+      inst: roles[peer.id] ? instrumentName(roles[peer.id]) : "กำลังเข้า",
+      lvl: (heard[peer.id] ?? 0) > 0 ? 0.75 : 0,
+      rtt: peer.rttMs,
+      state: peer.connectionState as RTCPeerConnectionState | "connected",
+    })),
+  ];
+
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4">
+    <main className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
+        <section className="panel p-3">
+          <h2 className="px-1 text-base font-semibold">ห้องซ้อมออนไลน์</h2>
+          <ul className="mt-2 flex flex-col gap-1">
+            {members.map((member) => (
+              <li key={member.id} className="flex items-center gap-3 rounded-lg px-1 py-1.5">
+                <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full text-sm font-bold text-white" style={{ background: avatarColor(member.id) }}>
+                  {member.name.slice(0, 1).toUpperCase()}
+                  <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface ${member.state === "connected" ? "bg-olive" : "bg-amber"}`} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">
+                    {member.me ? `${member.name} (คุณ)` : member.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted">
+                    {member.inst}
+                    {member.rtt != null ? ` · ${member.rtt} ms` : ""}
+                  </span>
+                </span>
+                <span className="flex h-4 items-end gap-[2px]" aria-hidden="true">
+                  {[0.15, 0.3, 0.45, 0.6, 0.75].map((t, i) => (
+                    <span key={t} className="meter-bar" data-on={member.lvl >= t} style={{ height: `${6 + i * 2.5}px` }} />
+                  ))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => void invite()} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-line bg-surface-2 text-sm font-medium">
+            <UserPlus className="size-4" aria-hidden="true" />
+            {copied ? "คัดลอกคำเชิญแล้ว" : "เชิญเพื่อน"}
+            <Share2 className="size-3.5 text-muted" aria-hidden="true" />
+          </button>
+        </section>
+
+        <section className="panel flex max-h-[26rem] flex-col p-3" onFocus={() => setUnread(0)}>
+          <h2 className="flex items-center gap-2 px-1 text-base font-semibold">
+            <MessageSquare className="size-4" aria-hidden="true" />
+            แชท
+            {unread > 0 ? <span className="rounded-full bg-brass px-1.5 text-xs text-brass-ink">{unread}</span> : null}
+          </h2>
+          <div className="mt-2 min-h-24 flex-1 overflow-y-auto pr-1" aria-live="polite">
+            {chat.length === 0 ? <p className="px-1 py-4 text-center text-xs text-muted">ยังไม่มีข้อความ ทักทายเพื่อนได้เลย</p> : null}
+            <ul className="flex flex-col gap-2">
+              {chat.map((line) => (
+                <li key={line.id} className="flex gap-2">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white" style={{ background: avatarColor(line.from) }}>
+                    {line.name.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className={`truncate text-xs font-semibold ${line.mine ? "text-fg" : "text-brass"}`}>{line.mine ? "คุณ" : line.name}</span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-muted">
+                        {new Date(line.at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </span>
+                    <span className="block break-words text-sm">{line.text}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div ref={chatEnd} />
+          </div>
+          <form
+            className="mt-2 flex gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              sendChat();
+            }}
+          >
+            <label className="sr-only" htmlFor="chat-input">
+              พิมพ์ข้อความ
+            </label>
+            <input
+              id="chat-input"
+              value={chatDraft}
+              maxLength={500}
+              onChange={(event) => setChatDraft(event.target.value)}
+              placeholder="พิมพ์ข้อความ..."
+              className="h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-sm"
+            />
+            <button type="submit" aria-label="ส่ง" className="grid h-10 w-10 place-items-center rounded-lg bg-brass text-brass-ink">
+              <Send className="size-4" aria-hidden="true" />
+            </button>
+          </form>
+        </section>
+      </aside>
+
+      <div className="flex min-w-0 flex-col gap-4">
       <section className="flex flex-wrap items-center gap-2">
         <p className="rounded-md bg-brass px-3 py-2 text-lg font-semibold tracking-widest text-brass-ink tabular-nums">{code}</p>
         <button
@@ -706,7 +909,7 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
         </div>
       ) : null}
 
-      <section className="grid gap-3 rounded-lg border border-line bg-surface p-3 sm:grid-cols-2">
+      <section className="grid gap-3 panel p-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -780,6 +983,7 @@ function Session({ room, name, onLeave }: { room: string; name: string; onLeave:
       <p className="text-xs text-muted">
         เครื่องบนจอส่งเป็นโน้ต เพื่อนสังเคราะห์เองเลยไม่มีดีเลย์ของตัวถอดรหัสเสียง ตัวเลข ms ข้างชื่อคือเวลาไปกลับของเส้นตรง
       </p>
+      </div>
     </main>
   );
 }
@@ -915,7 +1119,7 @@ function Keyboard({
 
 function Fretboard({ pressed, onPluck }: { pressed: Record<number, Who>; onPluck: (note: number) => void }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-line bg-surface p-2">
+    <div className="overflow-x-auto panel p-2">
       <div className="grid min-w-lg grid-cols-8 gap-1">
         {STRINGS.map((string) =>
           Array.from({ length: 8 }, (_, fret) => {
@@ -939,4 +1143,10 @@ function Fretboard({ pressed, onPluck }: { pressed: Record<number, Who>; onPluck
       </div>
     </div>
   );
+}
+
+function avatarColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+  return `hsl(${h} 55% 45%)`;
 }

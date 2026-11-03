@@ -1,19 +1,24 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #100f0c;
-  --color-surface: #1a1915;
-  --color-surface-2: #24221c;
-  --color-fg: #f4f0e6;
-  --color-muted: #9c9486;
-  --color-line: #343128;
-  --color-brass: #e2a23a;
-  --color-brass-ink: #1a1408;
-  --color-olive: #8ea36a;
-  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  /* JamStudio — navy + electric blue. Token names kept from the original
+     codebase: "brass" is the accent, "olive" is the in-tune / live green. */
+  --color-bg: #0a1020;
+  --color-surface: #111a2e;
+  --color-surface-2: #18233b;
+  --color-fg: #e8eefc;
+  --color-muted: #8a98b8;
+  --color-line: #24314f;
+  --color-brass: #3d7bfd;
+  --color-brass-ink: #ffffff;
+  --color-olive: #2fd06b;
+  --color-danger: #e5484d;
+  --color-amber: #f5a524;
+  --font-sans: "IBM Plex Sans Thai", "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-script: "Caveat", cursive;
   --radius-sm: 0.5rem;
-  --radius-md: 0.875rem;
-  --radius-lg: 1.25rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
 }
 
 @layer base {
@@ -24,6 +29,9 @@
 
   body {
     margin: 0;
+    background-image: radial-gradient(1200px 600px at 10% -10%, #15244a 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, #101d3d 0%, transparent 55%);
+    background-attachment: fixed;
     min-height: 100%;
     background: var(--color-bg);
     color: var(--color-fg);
@@ -66,4 +74,64 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- JamStudio components ---------- */
+.panel {
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 30px -18px rgb(0 0 0 / 0.8);
+}
+
+.meter-bar {
+  display: inline-block;
+  width: 4px;
+  border-radius: 1px;
+  background: var(--color-line);
+  transition: background 80ms linear;
+}
+.meter-bar[data-on="true"] {
+  background: var(--color-olive);
+}
+
+.knob-cap {
+  background: radial-gradient(circle at 35% 30%, #4a4a4a 0%, #1b1b1b 55%, #0c0c0c 100%);
+  box-shadow: 0 3px 6px rgb(0 0 0 / 0.6), inset 0 1px 1px rgb(255 255 255 / 0.15);
+}
+.knob-cap.gold {
+  background: radial-gradient(circle at 35% 30%, #f6e3a8 0%, #c9a24a 50%, #7a5a1c 100%);
+}
+
+.amp-tolex {
+  background:
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.025) 0 2px, transparent 2px 5px),
+    linear-gradient(180deg, #1c1c1c, #0d0d0d);
+}
+.amp-grille {
+  background:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.06) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 0.06) 0 1px, transparent 1px 4px),
+    #161616;
+}
+.amp-plate {
+  background: linear-gradient(180deg, #e9d9a6, #c8b072 60%, #a88d4f);
+}
+
+.headstock {
+  background: linear-gradient(90deg, #6b3a1c, #8a4d26 30%, #9b5a2e 50%, #8a4d26 70%, #6b3a1c);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
 }

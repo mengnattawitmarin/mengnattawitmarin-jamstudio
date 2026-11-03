@@ -168,13 +168,30 @@ async function handlePost(request: Request): Promise<Response> {
   return json({ ok: true });
 }
 
+// The native app (capacitor://localhost, https://localhost) and the GitHub
+// Pages build call this endpoint cross-origin. Only rendezvous data passes
+// here, nothing user-private, so a permissive CORS policy is acceptable.
+const CORS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+  "access-control-max-age": "86400",
+};
+
+function withCors(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(CORS)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, headers });
+}
+
 export async function handleSignaling(request: Request): Promise<Response> {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
-    if (request.method === "GET") return await handleGet(new URL(request.url));
-    if (request.method === "POST") return await handlePost(request);
-    return json({ error: "method not allowed" }, 405);
+    if (request.method === "GET") return withCors(await handleGet(new URL(request.url)));
+    if (request.method === "POST") return withCors(await handlePost(request));
+    return withCors(json({ error: "method not allowed" }, 405));
   } catch (error) {
     console.error("[rtc] signaling error:", error);
-    return json({ error: "signaling failed" }, 500);
+    return withCors(json({ error: "signaling failed" }, 500));
   }
 }

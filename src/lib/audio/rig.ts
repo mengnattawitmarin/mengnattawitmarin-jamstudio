@@ -10,7 +10,11 @@ export type AmpId =
   | "bass-tube"
   | "bass-stack"
   | "bass-modern"
-  | "bass-di";
+  | "bass-di"
+  | "plexi"
+  | "blackface"
+  | "dumble"
+  | "lab";
 export type PedalKind =
   | "gate"
   | "comp"
@@ -25,7 +29,13 @@ export type PedalKind =
   | "flanger"
   | "tremolo"
   | "delay"
-  | "spring";
+  | "spring"
+  | "boost"
+  | "klon"
+  | "univibe"
+  | "varitone";
+export type CabId = "auto" | "1x12-open" | "2x12-open" | "4x12-closed" | "4x10-bass" | "8x10-bass" | "ir";
+export type MicId = "sm57" | "md421" | "r121" | "u87";
 export type RoomKind = "off" | "room" | "hall" | "spring" | "plate";
 
 export type KnobSpec = {
@@ -34,7 +44,7 @@ export type KnobSpec = {
   min: number;
   max: number;
   def: number;
-  unit: "plain" | "hz" | "s" | "db" | "pct";
+  unit: "plain" | "hz" | "s" | "db" | "pct" | "step";
 };
 
 export type PedalState = {
@@ -74,6 +84,45 @@ export type RigSnapshot = {
   click: boolean;
   capo: number;
   a4: number;
+  /** Speaker cabinet profile ("auto" follows the amp model, "ir" = user impulse). */
+  cab: CabId;
+  /** Virtual microphone in front of the cabinet. */
+  mic: MicId;
+  /** Early-reflection "room" picked up by the mic, 0..1. */
+  air: number;
+};
+
+export const CABS: { id: CabId; name: string; family: "guitar" | "bass" | "any" }[] = [
+  { id: "auto", name: "ตามแอมป์", family: "any" },
+  { id: "1x12-open", name: "1x12 เปิดหลัง", family: "guitar" },
+  { id: "2x12-open", name: "2x12 คอมโบ", family: "guitar" },
+  { id: "4x12-closed", name: "4x12 British", family: "guitar" },
+  { id: "4x10-bass", name: "4x10 เบส", family: "bass" },
+  { id: "8x10-bass", name: "8x10 เบส", family: "bass" },
+  { id: "ir", name: "ไฟล์ IR ของฉัน", family: "any" },
+];
+
+export const MICS: { id: MicId; name: string; blurb: string }[] = [
+  { id: "sm57", name: "SM57", blurb: "ไดนามิก มิดหน้า คมชัด" },
+  { id: "md421", name: "MD421", blurb: "ไดนามิก โลว์แน่น กว้างกว่า" },
+  { id: "r121", name: "R121", blurb: "ริบบอน นุ่ม หวาน ปลายมน" },
+  { id: "u87", name: "U87", blurb: "คอนเดนเซอร์ ใส เปิด" },
+];
+
+type CabProfile = { lo: number; hi: number; bumpHz: number; bumpDb: number; notchHz: number; notchDb: number };
+const CAB_PROFILES: Record<Exclude<CabId, "auto" | "ir">, CabProfile> = {
+  "1x12-open": { lo: 95, hi: 5600, bumpHz: 2400, bumpDb: 2.5, notchHz: 380, notchDb: -2 },
+  "2x12-open": { lo: 80, hi: 5200, bumpHz: 2000, bumpDb: 3, notchHz: 420, notchDb: -2.5 },
+  "4x12-closed": { lo: 70, hi: 4700, bumpHz: 1700, bumpDb: 3.5, notchHz: 500, notchDb: -3 },
+  "4x10-bass": { lo: 45, hi: 4200, bumpHz: 900, bumpDb: 2, notchHz: 300, notchDb: -1.5 },
+  "8x10-bass": { lo: 38, hi: 3200, bumpHz: 600, bumpDb: 3, notchHz: 250, notchDb: -1 },
+};
+type MicProfile = { peakHz: number; peakDb: number; q: number; hiMul: number; lowDb: number };
+const MIC_PROFILES: Record<MicId, MicProfile> = {
+  sm57: { peakHz: 5200, peakDb: 4, q: 1.1, hiMul: 1, lowDb: -1.5 },
+  md421: { peakHz: 4000, peakDb: 2.5, q: 0.9, hiMul: 1.05, lowDb: 1.5 },
+  r121: { peakHz: 3000, peakDb: -3, q: 0.6, hiMul: 0.72, lowDb: 2 },
+  u87: { peakHz: 8000, peakDb: 3, q: 0.8, hiMul: 1.35, lowDb: 0.5 },
 };
 
 export type AmpModel = {
@@ -260,11 +309,149 @@ const PEDAL_LIST: { kind: PedalKind; name: string; blurb: string; knobs: KnobSpe
       { key: "mix", label: "มิกซ์", min: 0, max: 1, def: 0.3, unit: "pct" },
     ],
   },
+  {
+    kind: "boost",
+    name: "เทรเบิลบูสต์",
+    blurb: "ดันมิดสูงเข้าแอมป์ แบบบูสเตอร์ยุค 60",
+    knobs: [
+      { key: "boost", label: "บูสต์", min: 0, max: 1, def: 0.5, unit: "pct" },
+      { key: "range", label: "เต็ม↔แหลม", min: 0, max: 1, def: 0.7, unit: "pct" },
+      { key: "level", label: "เลเวล", min: 0, max: 1, def: 0.6, unit: "pct" },
+    ],
+  },
+  {
+    kind: "klon",
+    name: "โอดีใส",
+    blurb: "ผสมเสียงสะอาดกับเสียงแตก ไม่กินเบส",
+    knobs: [
+      { key: "gain", label: "เกน", min: 0, max: 1, def: 0.35, unit: "pct" },
+      { key: "treble", label: "เทรเบิล", min: 0, max: 1, def: 0.5, unit: "pct" },
+      { key: "level", label: "เอาต์พุต", min: 0, max: 1, def: 0.62, unit: "pct" },
+    ],
+  },
+  {
+    kind: "univibe",
+    name: "ยูนิไวบ์",
+    blurb: "เฟสหลอดไฟ สวิงไม่สมมาตร โยกแบบปลาย 60",
+    knobs: [
+      { key: "speed", label: "สปีด", min: 0.4, max: 9, def: 2.2, unit: "hz" },
+      { key: "intensity", label: "ความเข้ม", min: 0, max: 1, def: 0.7, unit: "pct" },
+      { key: "mode", label: "โครัส↔ไวบราโต", min: 0, max: 1, def: 0, unit: "pct" },
+    ],
+  },
+  {
+    kind: "varitone",
+    name: "วาริโทน",
+    blurb: "สวิตช์ตัดย่านความถี่ 6 ตำแหน่ง แบบกีตาร์แจ๊ส-บลูส์",
+    knobs: [{ key: "pos", label: "ตำแหน่ง", min: 0, max: 6, def: 2, unit: "step" }],
+  },
 ];
 
 export const PEDALS = PEDAL_LIST;
 
+/** Rough stomp colour per pedal kind, used by the visual pedalboard. */
+export const PEDAL_COLORS: Record<PedalKind, string> = {
+  gate: "#3a3f4b",
+  comp: "#1f8a70",
+  drive: "#2e9d4f",
+  dist: "#e46a1b",
+  fuzz: "#b3262e",
+  octave: "#8a5cf6",
+  wah: "#2b2b2b",
+  eq: "#cfd5df",
+  chorus: "#2f7fe0",
+  phaser: "#ef7d22",
+  flanger: "#6b7280",
+  tremolo: "#0f9fb0",
+  delay: "#7b3fe4",
+  spring: "#139c9c",
+  boost: "#c7a64a",
+  klon: "#c9a227",
+  univibe: "#1e3a8a",
+  varitone: "#5b3a1f",
+};
+
 export const AMPS: AmpModel[] = [
+  {
+    id: "plexi",
+    name: "British 800 · เพล็กซี่ 100W",
+    family: "guitar",
+    tube: true,
+    blurb: "หัวอังกฤษไม่มีมาสเตอร์ เปิดดังแล้วแตกเอง โทนร็อกปลาย 60",
+    shape: "tube",
+    drive: 4.2,
+    bass: -1,
+    mid: 2.5,
+    treble: 3,
+    presence: 3,
+    bassHz: 100,
+    midHz: 650,
+    trebleHz: 2800,
+    cabLo: 85,
+    cabHi: 5000,
+    cabBumpHz: 2000,
+    cabBumpDb: 3,
+  },
+  {
+    id: "blackface",
+    name: "แบล็กเฟซ คลีน",
+    family: "guitar",
+    tube: true,
+    blurb: "คลีนอเมริกัน มิดเว้า ประกายสูง รับก้อนไดรฟ์ได้ดี",
+    shape: "clean",
+    drive: 1.3,
+    bass: 2,
+    mid: -3,
+    treble: 3,
+    presence: 2,
+    bassHz: 100,
+    midHz: 500,
+    trebleHz: 3000,
+    cabLo: 75,
+    cabHi: 6000,
+    cabBumpHz: 2500,
+    cabBumpDb: 1.5,
+  },
+  {
+    id: "dumble",
+    name: "สมูทโอดี",
+    family: "guitar",
+    tube: true,
+    blurb: "ลีดเนียน มิดอวบ ซัสเทนยาว ตอบสนองน้ำหนักมือ",
+    shape: "tube",
+    drive: 3,
+    bass: 0,
+    mid: 3,
+    treble: 0,
+    presence: 1,
+    bassHz: 110,
+    midHz: 750,
+    trebleHz: 2600,
+    cabLo: 80,
+    cabHi: 4800,
+    cabBumpHz: 1200,
+    cabBumpDb: 2,
+  },
+  {
+    id: "lab",
+    name: "โซลิด L5 บลูส์",
+    family: "guitar",
+    tube: false,
+    blurb: "โซลิดสเตตคลีนสนิท มีคอมเพรสเซอร์ในตัว เสียงร้องเป็นโน้ต",
+    shape: "clean",
+    drive: 0.9,
+    bass: 0,
+    mid: 2,
+    treble: 1,
+    presence: 1,
+    bassHz: 120,
+    midHz: 900,
+    trebleHz: 3000,
+    cabLo: 90,
+    cabHi: 5200,
+    cabBumpHz: 1000,
+    cabBumpDb: 2,
+  },
   {
     id: "crystal",
     name: "คลีนคริสตัล",
@@ -536,6 +723,9 @@ export const DEFAULT_RIG: RigSnapshot = {
   click: false,
   capo: 0,
   a4: 440,
+  cab: "auto",
+  mic: "sm57",
+  air: 0.2,
 };
 
 type PresetDef = {
@@ -546,9 +736,154 @@ type PresetDef = {
   knobs: AmpKnobs;
   ambience: Ambience;
   pedals: () => PedalState[];
+  cab?: CabId;
+  mic?: MicId;
+  air?: number;
+  /** "artist" presets are tone studies inspired by documented rigs, not endorsements. */
+  group?: "basic" | "artist";
+  blurb?: string;
 };
 
 const PRESETS: PresetDef[] = [
+  // ── Tone studies built from publicly documented rigs ─────────────────────
+  // Hendrix: Strat → (wah) → Fuzz Face → Uni-Vibe → 100W non-master-volume
+  // British head cranked into 4x12s. Fuzz cleans up with picking/volume.
+  {
+    id: "hendrix-haze",
+    name: "สไตล์ Hendrix · ฟัซซ์",
+    group: "artist",
+    blurb: "ฟัซซ์เจอร์เมเนียมเข้าหัวอังกฤษ 100W เปิดดัง + 4x12 · ลองริฟแบบ Purple Haze",
+    source: "guitar",
+    amp: "plexi",
+    knobs: { gain: 0.72, bass: 0.78, mid: 0.52, treble: 0.55, presence: 0.55, master: 0.66, sag: 0.62 },
+    ambience: { kind: "room", decay: 0.35, mix: 0.22, tone: 0.55 },
+    cab: "4x12-closed",
+    mic: "sm57",
+    air: 0.3,
+    pedals: () => [
+      makePedal("wah", false, { position: 0.45, auto: 0 }),
+      makePedal("fuzz", true, { drive: 0.72, tone: 0.55, level: 0.55 }),
+      makePedal("octave", false, { sub: 0, up: 0.55 }),
+      makePedal("univibe", false, { speed: 2.4, intensity: 0.7, mode: 0 }),
+    ],
+  },
+  {
+    id: "hendrix-vibe",
+    name: "สไตล์ Hendrix · ยูนิไวบ์",
+    group: "artist",
+    blurb: "ยูนิไวบ์โหมดโครัสหมุนช้า + ไดรฟ์จากแอมป์ · โทนแบบ Machine Gun / Little Wing",
+    source: "guitar",
+    amp: "plexi",
+    knobs: { gain: 0.58, bass: 0.62, mid: 0.5, treble: 0.58, presence: 0.5, master: 0.62, sag: 0.55 },
+    ambience: { kind: "hall", decay: 0.4, mix: 0.2, tone: 0.5 },
+    cab: "4x12-closed",
+    mic: "sm57",
+    air: 0.35,
+    pedals: () => [
+      makePedal("fuzz", false, { drive: 0.55, tone: 0.5, level: 0.5 }),
+      makePedal("univibe", true, { speed: 1.4, intensity: 0.85, mode: 0 }),
+    ],
+  },
+  {
+    id: "hendrix-wah",
+    name: "สไตล์ Hendrix · วา",
+    group: "artist",
+    blurb: "วา + ฟัซซ์ + แอมป์แตก · ใช้แป้นวา (ตำแหน่ง/ออโต้) แบบ Voodoo Child",
+    source: "guitar",
+    amp: "plexi",
+    knobs: { gain: 0.7, bass: 0.7, mid: 0.55, treble: 0.5, presence: 0.55, master: 0.66, sag: 0.6 },
+    ambience: { kind: "room", decay: 0.3, mix: 0.18, tone: 0.5 },
+    cab: "4x12-closed",
+    mic: "sm57",
+    air: 0.3,
+    pedals: () => [
+      makePedal("wah", true, { position: 0.4, auto: 0.55 }),
+      makePedal("fuzz", true, { drive: 0.62, tone: 0.5, level: 0.52 }),
+    ],
+  },
+  // John Mayer: Strat (pickup pos. 4/5) → low-gain TS-808 / Klon-style OD →
+  // blackface Deluxe/Twin clean or Dumble/Two-Rock style lead, spring reverb.
+  {
+    id: "mayer-clean",
+    name: "สไตล์ John Mayer · คลีน",
+    group: "artist",
+    blurb: "คลีนแบล็กเฟซ + คอมเพรสเบา + สปริง · โทน neck/middle แบบ Neon / Wonderland",
+    source: "guitar",
+    amp: "blackface",
+    knobs: { gain: 0.38, bass: 0.48, mid: 0.4, treble: 0.62, presence: 0.55, master: 0.68, sag: 0.35 },
+    ambience: { kind: "spring", decay: 0.5, mix: 0.36, tone: 0.55 },
+    cab: "1x12-open",
+    mic: "r121",
+    air: 0.25,
+    pedals: () => [makePedal("comp", true, { amount: 0.28, attack: 0.45, level: 0.62 }), makePedal("klon", false)],
+  },
+  {
+    id: "mayer-gravity",
+    name: "สไตล์ John Mayer · Gravity",
+    group: "artist",
+    blurb: "แอมป์คลีนดันด้วยไดรฟ์เกนต่ำเลเวลสูง (แนว TS-808) + สปริง · เบนด์ช้าๆ",
+    source: "guitar",
+    amp: "blackface",
+    knobs: { gain: 0.45, bass: 0.55, mid: 0.42, treble: 0.6, presence: 0.5, master: 0.66, sag: 0.45 },
+    ambience: { kind: "spring", decay: 0.55, mix: 0.34, tone: 0.5 },
+    cab: "2x12-open",
+    mic: "sm57",
+    air: 0.25,
+    pedals: () => [
+      makePedal("drive", true, { drive: 0.28, tone: 0.52, level: 0.72 }),
+      makePedal("delay", true, { time: 0.38, feedback: 0.22, mix: 0.14 }),
+    ],
+  },
+  {
+    id: "mayer-lead",
+    name: "สไตล์ John Mayer · ลีดเนียน",
+    group: "artist",
+    blurb: "หัวโอดีแบบสมูท + โอดีใส · ลีดร้องเป็นเสียงคน แบบ Slow Dancing",
+    source: "guitar",
+    amp: "dumble",
+    knobs: { gain: 0.55, bass: 0.45, mid: 0.55, treble: 0.62, presence: 0.5, master: 0.62, sag: 0.5 },
+    ambience: { kind: "plate", decay: 0.45, mix: 0.26, tone: 0.5 },
+    cab: "2x12-open",
+    mic: "md421",
+    air: 0.2,
+    pedals: () => [
+      makePedal("klon", true, { gain: 0.3, treble: 0.55, level: 0.62 }),
+      makePedal("delay", true, { time: 0.42, feedback: 0.25, mix: 0.16 }),
+    ],
+  },
+  // B.B. King: ES-355 with Varitone → straight into a Lab Series L5
+  // (solid-state, built-in compressor) or a Twin Reverb. No pedals.
+  {
+    id: "bbking",
+    name: "สไตล์ B.B. King · Lucille",
+    group: "artist",
+    blurb: "โซลิดคลีนมีคอมเพรสเซอร์ + วาริโทนตำแหน่ง 2 · โน้ตเดี่ยวไวบราโตมือ แบบ The Thrill Is Gone",
+    source: "guitar",
+    amp: "lab",
+    knobs: { gain: 0.42, bass: 0.45, mid: 0.66, treble: 0.5, presence: 0.42, master: 0.7, sag: 0.25 },
+    ambience: { kind: "room", decay: 0.42, mix: 0.24, tone: 0.5 },
+    cab: "2x12-open",
+    mic: "sm57",
+    air: 0.3,
+    pedals: () => [
+      makePedal("comp", true, { amount: 0.45, attack: 0.35, level: 0.62 }),
+      makePedal("varitone", true, { pos: 2 }),
+    ],
+  },
+  {
+    id: "bbking-twin",
+    name: "สไตล์ B.B. King · ทวิน",
+    group: "artist",
+    blurb: "คลีนหลอดหัวใหญ่ เปิดมิด ลดแหลม · ยุคหลังที่ใช้ตู้ทวิน",
+    source: "guitar",
+    amp: "blackface",
+    knobs: { gain: 0.48, bass: 0.45, mid: 0.7, treble: 0.45, presence: 0.4, master: 0.7, sag: 0.4 },
+    ambience: { kind: "spring", decay: 0.35, mix: 0.2, tone: 0.45 },
+    cab: "2x12-open",
+    mic: "sm57",
+    air: 0.25,
+    pedals: () => [makePedal("varitone", true, { pos: 3 })],
+  },
   {
     id: "clean",
     name: "คลีนแอมเบียน",
@@ -615,9 +950,17 @@ const PRESETS: PresetDef[] = [
   },
 ];
 
-export const RIG_PRESETS = PRESETS.map((preset) => ({ id: preset.id, name: preset.name }));
+export const RIG_PRESETS = PRESETS.map((preset) => ({
+  id: preset.id,
+  name: preset.name,
+  group: preset.group ?? "basic",
+  blurb: preset.blurb ?? "",
+  source: preset.source,
+}));
 
-export function applyPreset(id: string): Pick<RigSnapshot, "source" | "amp" | "knobs" | "ambience" | "pedals"> | null {
+export function applyPreset(
+  id: string,
+): Pick<RigSnapshot, "source" | "amp" | "knobs" | "ambience" | "pedals" | "cab" | "mic" | "air"> | null {
   const preset = PRESETS.find((item) => item.id === id);
   if (!preset) return null;
   return {
@@ -626,6 +969,9 @@ export function applyPreset(id: string): Pick<RigSnapshot, "source" | "amp" | "k
     knobs: { ...preset.knobs },
     ambience: { ...preset.ambience },
     pedals: preset.pedals(),
+    cab: preset.cab ?? "auto",
+    mic: preset.mic ?? "sm57",
+    air: preset.air ?? 0.2,
   };
 }
 
@@ -769,6 +1115,9 @@ export function readSnapshot(raw: string | null): RigSnapshot {
       click: Boolean(data.click),
       capo: Math.round(num(data.capo, 0, 0, 7)),
       a4: Math.round(num(data.a4, 440, 430, 450)),
+      cab: CABS.some((cab) => cab.id === data.cab) && data.cab !== "ir" ? (data.cab as CabId) : "auto",
+      mic: MICS.some((mic) => mic.id === data.mic) ? (data.mic as MicId) : "sm57",
+      air: num(data.air, 0.2, 0, 1),
     };
   } catch {
     return structuredClone(DEFAULT_RIG);
@@ -783,6 +1132,7 @@ export function formatKnob(knob: KnobSpec, value: number): string {
     return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)} dB`;
   }
   if (knob.unit === "pct") return `${Math.round(value * 100)}`;
+  if (knob.unit === "step") return Math.round(value) === 0 ? "ปิด" : `${Math.round(value)}`;
   return value < 0.01 ? value.toFixed(3) : value.toFixed(2);
 }
 
@@ -847,6 +1197,32 @@ function foldCurve(): Float32Array {
 }
 
 const FOLD_CURVE = foldCurve();
+
+function boostCurve(): Float32Array {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const x = (i / (n - 1)) * 2 - 1;
+    // Germanium-ish: softer on the negative swing → even harmonics.
+    curve[i] = x >= 0 ? Math.tanh(x * 1.6) : Math.tanh(x * 1.15) * 0.92;
+  }
+  return curve;
+}
+
+function diodeCurve(): Float32Array {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const x = (i / (n - 1)) * 2 - 1;
+    // Symmetric germanium diode pair: soft knee, hard ceiling.
+    curve[i] = Math.sign(x) * (1 - Math.exp(-Math.abs(x) * 3.2)) * 0.95;
+  }
+  return curve;
+}
+
+const BOOST_CURVE = boostCurve();
+const DIODE_CURVE = diodeCurve();
+const VARITONE_HZ = [1000, 1800, 1050, 680, 480, 330, 230];
 
 function makeImpulse(ctx: AudioContext, seconds: number, kind: Exclude<RoomKind, "off">): AudioBuffer {
   const sr = ctx.sampleRate;
@@ -995,7 +1371,7 @@ function createPedal(ctx: AudioContext, kind: PedalKind): PedalNode {
     hp.frequency.value = kind === "fuzz" ? 140 : 70;
     const shaper = ctx.createWaveShaper();
     shaper.curve = CLIP_CURVES[kind] as Float32Array<ArrayBuffer>;
-    shaper.oversample = "2x";
+    shaper.oversample = "4x";
     const tone = ctx.createBiquadFilter();
     tone.type = "lowpass";
     const level = ctx.createGain();
@@ -1281,6 +1657,179 @@ function createPedal(ctx: AudioContext, kind: PedalKind): PedalNode {
     };
   }
 
+  if (kind === "boost") {
+    // Treble booster: a single-transistor style lift of the upper mids that
+    // hits the amp's first gain stage harder, with gentle asymmetric clipping.
+    const pre = ctx.createGain();
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.Q.value = 0.6;
+    const peak = ctx.createBiquadFilter();
+    peak.type = "peaking";
+    peak.frequency.value = 2600;
+    peak.Q.value = 0.7;
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = BOOST_CURVE as Float32Array<ArrayBuffer>;
+    shaper.oversample = "4x";
+    const level = ctx.createGain();
+    input.connect(pre);
+    pre.connect(hp);
+    hp.connect(peak);
+    peak.connect(shaper);
+    shaper.connect(level);
+    level.connect(wet);
+    wet.connect(output);
+    nodes.push(pre, hp, peak, shaper, level);
+    return {
+      kind,
+      input,
+      output,
+      apply: (params, on) => {
+        const range = params.range ?? 0.7;
+        const boost = params.boost ?? 0.5;
+        hp.frequency.setTargetAtTime(logFreq(40, 900, range), now(), 0.02);
+        peak.gain.setTargetAtTime(range * 9, now(), 0.02);
+        pre.gain.setTargetAtTime(1 + boost * 5, now(), 0.02);
+        level.gain.setTargetAtTime(0.35 + (params.level ?? 0.6) * 0.9, now(), 0.02);
+        mixBypass(on, 1);
+      },
+      dispose: () => disconnectAll(nodes),
+    };
+  }
+
+  if (kind === "klon") {
+    // Transparent overdrive: a clean path is summed with a mid-humped,
+    // diode-clipped path. As gain rises the clean share falls (ganged pot).
+    const clean = ctx.createGain();
+    const pre = ctx.createGain();
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 110;
+    const hump = ctx.createBiquadFilter();
+    hump.type = "peaking";
+    hump.frequency.value = 1000;
+    hump.Q.value = 0.7;
+    hump.gain.value = 5;
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = DIODE_CURVE as Float32Array<ArrayBuffer>;
+    shaper.oversample = "4x";
+    const dirty = ctx.createGain();
+    const sum = ctx.createGain();
+    const treble = ctx.createBiquadFilter();
+    treble.type = "highshelf";
+    treble.frequency.value = 1800;
+    const level = ctx.createGain();
+    input.connect(clean);
+    clean.connect(sum);
+    input.connect(pre);
+    pre.connect(hp);
+    hp.connect(hump);
+    hump.connect(shaper);
+    shaper.connect(dirty);
+    dirty.connect(sum);
+    sum.connect(treble);
+    treble.connect(level);
+    level.connect(wet);
+    wet.connect(output);
+    nodes.push(clean, pre, hp, hump, shaper, dirty, sum, treble, level);
+    return {
+      kind,
+      input,
+      output,
+      apply: (params, on) => {
+        const gain = params.gain ?? 0.35;
+        clean.gain.setTargetAtTime(0.75 * (1 - gain * 0.8), now(), 0.02);
+        pre.gain.setTargetAtTime(1.5 + gain * 22, now(), 0.02);
+        dirty.gain.setTargetAtTime(0.25 + gain * 0.35, now(), 0.02);
+        treble.gain.setTargetAtTime(((params.treble ?? 0.5) - 0.5) * 14, now(), 0.02);
+        level.gain.setTargetAtTime(0.3 + (params.level ?? 0.62) * 1.1, now(), 0.02);
+        mixBypass(on, 1);
+      },
+      dispose: () => disconnectAll(nodes),
+    };
+  }
+
+  if (kind === "univibe") {
+    // Four staggered all-pass stages swept by a skewed "lamp" LFO (fast rise,
+    // slow decay) plus a little amplitude throb. Chorus = dry+wet, vibrato = wet.
+    const centers = [95, 330, 1050, 2900];
+    const filters: BiquadFilterNode[] = [];
+    const depths: GainNode[] = [];
+    let node: AudioNode = input;
+    const lfo = ctx.createOscillator();
+    lfo.setPeriodicWave(
+      ctx.createPeriodicWave([0, 0, -0.32, 0, -0.06], [0, 1, 0, 0.12, 0]),
+    );
+    lfo.frequency.value = 2.2;
+    for (const hz of centers) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "allpass";
+      filter.frequency.value = hz;
+      filter.Q.value = 0.55;
+      const depth = ctx.createGain();
+      depth.gain.value = hz * 0.6;
+      lfo.connect(depth);
+      depth.connect(filter.frequency);
+      node.connect(filter);
+      node = filter;
+      filters.push(filter);
+      depths.push(depth);
+    }
+    const throb = ctx.createGain();
+    const throbDepth = ctx.createGain();
+    throbDepth.gain.value = 0.08;
+    lfo.connect(throbDepth);
+    throbDepth.connect(throb.gain);
+    node.connect(throb);
+    throb.connect(wet);
+    wet.connect(output);
+    lfo.start();
+    oscs.push(lfo);
+    nodes.push(...filters, ...depths, throb, throbDepth);
+    return {
+      kind,
+      input,
+      output,
+      apply: (params, on) => {
+        const intensity = params.intensity ?? 0.7;
+        lfo.frequency.setTargetAtTime(params.speed ?? 2.2, now(), 0.05);
+        depths.forEach((depth, index) => depth.gain.setTargetAtTime(centers[index] * (0.15 + intensity * 0.7), now(), 0.05));
+        throb.gain.setTargetAtTime(1 - intensity * 0.1, now(), 0.05);
+        throbDepth.gain.setTargetAtTime(intensity * 0.1, now(), 0.05);
+        mixBypass(on, (params.mode ?? 0) >= 0.5 ? 1 : 0.5);
+      },
+      dispose: () => {
+        for (const osc of oscs) stopOsc(osc);
+        disconnectAll(nodes);
+      },
+    };
+  }
+
+  if (kind === "varitone") {
+    // Six-way passive notch selector (position 1 = bypass on the real switch;
+    // here 0 = off). Each position carves a deeper, lower notch.
+    const notch = ctx.createBiquadFilter();
+    notch.type = "peaking";
+    notch.Q.value = 2.2;
+    notch.gain.value = 0;
+    input.connect(notch);
+    notch.connect(wet);
+    wet.connect(output);
+    nodes.push(notch);
+    return {
+      kind,
+      input,
+      output,
+      apply: (params, on) => {
+        const pos = Math.round(clamp(params.pos ?? 2, 0, 6));
+        notch.frequency.setTargetAtTime(VARITONE_HZ[pos] ?? 1000, now(), 0.02);
+        notch.gain.setTargetAtTime(pos === 0 ? 0 : -15, now(), 0.02);
+        mixBypass(on, 1);
+      },
+      dispose: () => disconnectAll(nodes),
+    };
+  }
+
   if (kind === "delay") {
     const delay = ctx.createDelay(2);
     delay.delayTime.value = 0.32;
@@ -1341,7 +1890,34 @@ function createPedal(ctx: AudioContext, kind: PedalKind): PedalNode {
 
 type Voice = { note: number; stop: (when: number) => void };
 
-export type TunerReading = { hz: number; rms: number };
+export type TunerReading = {
+  hz: number;
+  rms: number;
+  /** Peak of the live input before the input-gain stage, 0..1. */
+  peak: number;
+  /** True for ~1s after the live input came within 0.5 dB of full scale. */
+  clip: boolean;
+};
+
+export type InputChannel = "mix" | "left" | "right";
+export type LiveOptions = { deviceId?: string; channel?: InputChannel };
+export type LatencyMode = "interactive" | "balanced";
+
+export type AudioDevices = { inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[] };
+
+/** List audio I/O devices. Labels are only filled after mic permission. */
+export async function listAudioDevices(): Promise<AudioDevices> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return { inputs: [], outputs: [] };
+  const all = await navigator.mediaDevices.enumerateDevices();
+  return {
+    inputs: all.filter((device) => device.kind === "audioinput"),
+    outputs: all.filter((device) => device.kind === "audiooutput"),
+  };
+}
+
+export function canPickOutput(): boolean {
+  return typeof AudioContext !== "undefined" && "setSinkId" in AudioContext.prototype;
+}
 
 export class RigEngine {
   readonly ctx: AudioContext;
@@ -1390,13 +1966,45 @@ export class RigEngine {
   private metroBeat = 0;
   private smoothHz = 0;
   private miss = 0;
-  private reading: TunerReading = { hz: 0, rms: 0 };
+  private reading: TunerReading = { hz: 0, rms: 0, peak: 0, clip: false };
   private closed = false;
+  // Live input conditioning: DC/rumble high-pass, trim, and a pre-gain meter.
+  private readonly liveHp: BiquadFilterNode;
+  private readonly liveTrim: GainNode;
+  private readonly inMeter: AnalyserNode;
+  private readonly inMeterBuf: Float32Array;
+  private liveSplit: ChannelSplitterNode | null = null;
+  private clipUntil = 0;
+  // Cabinet + mic simulation (filter cab or user IR), and room pickup.
+  private readonly cabFilterPath: GainNode;
+  private readonly cabNotch: BiquadFilterNode;
+  private readonly micPeak: BiquadFilterNode;
+  private readonly micLow: BiquadFilterNode;
+  private readonly irConv: ConvolverNode;
+  private readonly irPath: GainNode;
+  private readonly cabSum: GainNode;
+  private readonly roomDelay: DelayNode;
+  private readonly roomTone: BiquadFilterNode;
+  private readonly roomGain: GainNode;
+  private cabId: CabId = "auto";
+  private micId: MicId = "sm57";
+  private ampId: AmpId = "blackface";
+  private ampKnobs: AmpKnobs = { ...DEFAULT_KNOBS };
+  private userIr: AudioBuffer | null = null;
+  // Feedback (howl) guard state.
+  private howlTicks = 0;
+  private lastRms = 0;
+  private howlMuted = false;
+  private masterLevel = 0.8;
+  /** Disable to never auto-mute (e.g. amp sim through a speaker on purpose). */
+  howlGuard = true;
   onBeat: ((beat: number) => void) | null = null;
+  /** Fires when the howl guard mutes (true) or the user re-arms it (false). */
+  onFeedback: ((muted: boolean) => void) | null = null;
 
-  constructor() {
+  constructor(opts: { latency?: LatencyMode } = {}) {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    this.ctx = new AudioCtx({ latencyHint: "interactive" });
+    this.ctx = new AudioCtx({ latencyHint: opts.latency ?? "interactive" });
     this.inputGain = this.ctx.createGain();
     this.inputGain.gain.value = 0.85;
     this.fxSend = this.ctx.createGain();
@@ -1406,6 +2014,18 @@ export class RigEngine {
     this.tunerBuf = new Float32Array(this.tuner.fftSize);
     this.inputGain.connect(this.tuner);
     this.inputGain.connect(this.fxSend);
+
+    this.liveHp = this.ctx.createBiquadFilter();
+    this.liveHp.type = "highpass";
+    this.liveHp.frequency.value = 28;
+    this.liveHp.Q.value = 0.6;
+    this.liveTrim = this.ctx.createGain();
+    this.inMeter = this.ctx.createAnalyser();
+    this.inMeter.fftSize = 1024;
+    this.inMeterBuf = new Float32Array(this.inMeter.fftSize);
+    this.liveHp.connect(this.liveTrim);
+    this.liveHp.connect(this.inMeter);
+    this.liveTrim.connect(this.inputGain);
 
     this.ampInput = this.ctx.createGain();
     this.hp = this.ctx.createBiquadFilter();
@@ -1419,7 +2039,7 @@ export class RigEngine {
     this.treble.type = "highshelf";
     this.drive = this.ctx.createGain();
     this.shaper = this.ctx.createWaveShaper();
-    this.shaper.oversample = "2x";
+    this.shaper.oversample = "4x";
     this.sag = this.ctx.createDynamicsCompressor();
     this.sag.knee.value = 12;
     this.sag.attack.value = 0.02;
@@ -1444,10 +2064,46 @@ export class RigEngine {
     this.drive.connect(this.shaper);
     this.shaper.connect(this.sag);
     this.sag.connect(this.presence);
+    this.cabFilterPath = this.ctx.createGain();
+    this.cabNotch = this.ctx.createBiquadFilter();
+    this.cabNotch.type = "peaking";
+    this.cabNotch.Q.value = 1.4;
+    this.micPeak = this.ctx.createBiquadFilter();
+    this.micPeak.type = "peaking";
+    this.micLow = this.ctx.createBiquadFilter();
+    this.micLow.type = "lowshelf";
+    this.micLow.frequency.value = 160;
+    this.irConv = this.ctx.createConvolver();
+    this.irConv.normalize = true;
+    this.irPath = this.ctx.createGain();
+    this.irPath.gain.value = 0;
+    this.cabSum = this.ctx.createGain();
+    this.roomDelay = this.ctx.createDelay(0.1);
+    this.roomDelay.delayTime.value = 0.011;
+    this.roomTone = this.ctx.createBiquadFilter();
+    this.roomTone.type = "lowpass";
+    this.roomTone.frequency.value = 3200;
+    this.roomGain = this.ctx.createGain();
+    this.roomGain.gain.value = 0.12;
+    // presence ─┬─ cabHp → cabMid → cabNotch → cabLp → micLow → micPeak → filterPath ─┐
+    //           └─ irConv → irPath ─────────────────────────────────────────────────────┴─ cabSum ─┬─ ampOut
+    //                                                                            room delay/tone ─┘
     this.presence.connect(this.cabHp);
     this.cabHp.connect(this.cabMid);
-    this.cabMid.connect(this.cabLp);
-    this.cabLp.connect(this.ampOut);
+    this.cabMid.connect(this.cabNotch);
+    this.cabNotch.connect(this.cabLp);
+    this.cabLp.connect(this.micLow);
+    this.micLow.connect(this.micPeak);
+    this.micPeak.connect(this.cabFilterPath);
+    this.cabFilterPath.connect(this.cabSum);
+    this.presence.connect(this.irConv);
+    this.irConv.connect(this.irPath);
+    this.irPath.connect(this.cabSum);
+    this.cabSum.connect(this.ampOut);
+    this.cabSum.connect(this.roomDelay);
+    this.roomDelay.connect(this.roomTone);
+    this.roomTone.connect(this.roomGain);
+    this.roomGain.connect(this.ampOut);
 
     this.dry = this.ctx.createGain();
     this.verbFilter = this.ctx.createBiquadFilter();
@@ -1489,12 +2145,90 @@ export class RigEngine {
     return this.reading;
   }
 
+  /** Round-trip-ish latency estimate in ms (output buffer + device + input frame). */
+  latencyMs(): number {
+    const ctx = this.ctx as AudioContext & { outputLatency?: number };
+    const base = ctx.baseLatency ?? 0;
+    const out = ctx.outputLatency ?? 0;
+    const inputGuess = 128 / ctx.sampleRate;
+    return Math.round((base + out + inputGuess) * 1000);
+  }
+
+  /** Route the whole rig to a chosen output (headphones / interface). Chrome & Edge only. */
+  async setOutputDevice(deviceId: string): Promise<boolean> {
+    const ctx = this.ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
+    if (!ctx.setSinkId) return false;
+    try {
+      await ctx.setSinkId(deviceId === "default" ? "" : deviceId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Re-arm output after the howl guard muted it. */
+  rearmFeedback() {
+    this.howlMuted = false;
+    this.howlTicks = 0;
+    this.master.gain.setTargetAtTime(this.masterLevel, this.ctx.currentTime, 0.05);
+    this.onFeedback?.(false);
+  }
+
+  setInputTrim(db: number) {
+    this.liveTrim.gain.setTargetAtTime(10 ** (clamp(db, -24, 24) / 20), this.ctx.currentTime, 0.02);
+  }
+
+  setCab(cab: CabId, mic: MicId, air: number) {
+    this.cabId = cab;
+    this.micId = mic;
+    const t = this.ctx.currentTime;
+    this.roomGain.gain.setTargetAtTime(clamp(air, 0, 1) * 0.32, t, 0.04);
+    this.roomDelay.delayTime.setTargetAtTime(0.006 + clamp(air, 0, 1) * 0.018, t, 0.04);
+    this.applyCab();
+  }
+
+  /** Load a user cabinet impulse response (WAV). Pass null to clear. */
+  setUserIr(buffer: AudioBuffer | null) {
+    this.userIr = buffer;
+    if (buffer) this.irConv.buffer = buffer;
+    this.applyCab();
+  }
+
+  hasUserIr(): boolean {
+    return this.userIr != null;
+  }
+
+  private applyCab() {
+    const t = this.ctx.currentTime;
+    const model = ampById(this.ampId) ?? AMPS[1];
+    const useIr = this.cabId === "ir" && this.userIr != null;
+    this.irPath.gain.setTargetAtTime(useIr ? 0.9 : 0, t, 0.03);
+    this.cabFilterPath.gain.setTargetAtTime(useIr ? 0 : 1, t, 0.03);
+    const profile: CabProfile =
+      this.cabId === "auto" || this.cabId === "ir"
+        ? { lo: model.cabLo, hi: model.cabHi, bumpHz: model.cabBumpHz, bumpDb: model.cabBumpDb, notchHz: 450, notchDb: -1.5 }
+        : CAB_PROFILES[this.cabId];
+    const mic = MIC_PROFILES[this.micId];
+    this.cabHp.frequency.setTargetAtTime(profile.lo, t, 0.03);
+    this.cabMid.frequency.setTargetAtTime(profile.bumpHz, t, 0.03);
+    this.cabMid.gain.setTargetAtTime(profile.bumpDb, t, 0.03);
+    this.cabNotch.frequency.setTargetAtTime(profile.notchHz, t, 0.03);
+    this.cabNotch.gain.setTargetAtTime(profile.notchDb, t, 0.03);
+    this.cabLp.frequency.setTargetAtTime(profile.hi * mic.hiMul * (0.72 + this.ampKnobs.presence * 0.5), t, 0.03);
+    this.micPeak.frequency.setTargetAtTime(mic.peakHz, t, 0.03);
+    this.micPeak.gain.setTargetAtTime(useIr ? 0 : mic.peakDb, t, 0.03);
+    this.micPeak.Q.setTargetAtTime(mic.q, t, 0.03);
+    this.micLow.gain.setTargetAtTime(useIr ? 0 : mic.lowDb, t, 0.03);
+  }
+
   setInput(value: number) {
     this.inputGain.gain.setTargetAtTime(clamp(value, 0, 1.5), this.ctx.currentTime, 0.02);
   }
 
   setMaster(value: number) {
-    this.master.gain.setTargetAtTime(clamp(value, 0, 1), this.ctx.currentTime, 0.02);
+    this.masterLevel = clamp(value, 0, 1);
+    if (this.howlMuted) return;
+    this.master.gain.setTargetAtTime(this.masterLevel, this.ctx.currentTime, 0.02);
   }
 
   setAmp(id: AmpId, knobs: AmpKnobs) {
@@ -1515,10 +2249,9 @@ export class RigEngine {
     this.presence.gain.setTargetAtTime(model.presence + (knobs.presence - 0.5) * 10, t, 0.03);
     const pre = model.drive * (0.4 + knobs.gain * 1.25);
     this.drive.gain.setTargetAtTime(pre, t, 0.02);
-    this.cabHp.frequency.setTargetAtTime(model.cabLo, t, 0.03);
-    this.cabMid.frequency.setTargetAtTime(model.cabBumpHz, t, 0.03);
-    this.cabMid.gain.setTargetAtTime(model.cabBumpDb, t, 0.03);
-    this.cabLp.frequency.setTargetAtTime(model.cabHi * (0.72 + knobs.presence * 0.5), t, 0.03);
+    this.ampId = model.id;
+    this.ampKnobs = { ...knobs };
+    this.applyCab();
     const trim = model.shape === "hot" ? 0.42 : model.shape === "tube" ? 0.58 : 0.72;
     this.ampOut.gain.setTargetAtTime(trim * (0.25 + knobs.master * 0.95), t, 0.03);
     this.sag.threshold.setTargetAtTime(-6 - knobs.sag * 20, t, 0.04);
@@ -1560,26 +2293,51 @@ export class RigEngine {
     for (const pedal of list) this.pedals.get(pedal.id)?.apply(pedal.params, pedal.on);
   }
 
-  async openLive(): Promise<void> {
+  async openLive(opts: LiveOptions = {}): Promise<void> {
     this.closeLive();
     await this.resume();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-      video: false,
-    });
+    const channel = opts.channel ?? "mix";
+    // Raw path: no echo cancel / noise suppression / AGC — those smear
+    // transients, add 10–40 ms and pump the signal. Ask for low latency.
+    const audio: MediaTrackConstraints & { latency?: number } = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: channel === "mix" ? 1 : 2,
+      latency: 0.005,
+    };
+    if (opts.deviceId && opts.deviceId !== "default") audio.deviceId = { exact: opts.deviceId };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
     const src = this.ctx.createMediaStreamSource(stream);
-    src.connect(this.inputGain);
+    if (channel === "mix") {
+      src.connect(this.liveHp);
+    } else {
+      // Two-input interfaces (e.g. guitar on input 1, mic on input 2):
+      // take only the chosen side so the other input doesn't bleed in.
+      const split = this.ctx.createChannelSplitter(2);
+      src.connect(split);
+      split.connect(this.liveHp, channel === "left" ? 0 : 1);
+      this.liveSplit = split;
+    }
     this.liveSrc = src;
     this.liveStream = stream;
+    this.howlTicks = 0;
+  }
+
+  /** The raw live input stream (e.g. to share with a jam room). */
+  liveMediaStream(): MediaStream | null {
+    return this.liveStream;
   }
 
   closeLive() {
     this.liveStream?.getTracks().forEach((track) => track.stop());
     try {
       this.liveSrc?.disconnect();
+      this.liveSplit?.disconnect();
     } catch {
       // Already disconnected.
     }
+    this.liveSplit = null;
     this.liveSrc = null;
     this.liveStream = null;
   }
@@ -1713,6 +2471,7 @@ export class RigEngine {
   close() {
     this.closed = true;
     this.onBeat = null;
+    this.onFeedback = null;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.setMetronome(null);
@@ -1725,8 +2484,39 @@ export class RigEngine {
     void this.ctx.close();
   }
 
+  private meterInput(): { peak: number; clip: boolean } {
+    if (!this.liveSrc) return { peak: 0, clip: false };
+    this.inMeter.getFloatTimeDomainData(this.inMeterBuf as Float32Array<ArrayBuffer>);
+    let peak = 0;
+    for (let i = 0; i < this.inMeterBuf.length; i += 1) peak = Math.max(peak, Math.abs(this.inMeterBuf[i]));
+    const now = performance.now();
+    if (peak >= 0.944) this.clipUntil = now + 1000;
+    return { peak: Math.min(1, peak), clip: now < this.clipUntil };
+  }
+
+  /**
+   * Howl guard. Acoustic feedback is a narrow tone that holds or grows; a
+   * plucked string always decays. If the live input stays loud and
+   * non-decaying with a stable pitch for ~1.3 s, mute the output.
+   */
+  private guardFeedback(rms: number, hz: number) {
+    if (!this.liveSrc || this.howlMuted || !this.howlGuard) {
+      this.lastRms = rms;
+      return;
+    }
+    const sustained = rms > 0.18 && rms >= this.lastRms * 0.985 && hz > 0;
+    this.howlTicks = sustained ? this.howlTicks + 1 : Math.max(0, this.howlTicks - 2);
+    this.lastRms = rms;
+    if (this.howlTicks >= 14) {
+      this.howlMuted = true;
+      this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.01);
+      this.onFeedback?.(true);
+    }
+  }
+
   private analyse() {
     if (this.closed || (typeof document !== "undefined" && document.hidden)) return;
+    const meter = this.meterInput();
     this.tuner.getFloatTimeDomainData(this.tunerBuf as Float32Array<ArrayBuffer>);
     let sum = 0;
     for (let i = 0; i < this.tunerBuf.length; i += 8) sum += this.tunerBuf[i] * this.tunerBuf[i];
@@ -1734,7 +2524,8 @@ export class RigEngine {
     if (rms < 0.004) {
       this.miss += 1;
       if (this.miss > 3) this.smoothHz = 0;
-      this.reading = { hz: 0, rms: Math.min(1, rms * 3.2) };
+      this.guardFeedback(rms, 0);
+      this.reading = { hz: 0, rms: Math.min(1, rms * 3.2), ...meter };
       for (const node of this.pedals.values()) node.follow?.(0);
       return;
     }
@@ -1747,7 +2538,8 @@ export class RigEngine {
       if (this.miss > 3) this.smoothHz = 0;
     }
     const shown = this.smoothHz > 0 ? this.smoothHz : 0;
-    this.reading = { hz: shown, rms: Math.min(1, rms * 3.2) };
+    this.guardFeedback(rms, shown);
+    this.reading = { hz: shown, rms: Math.min(1, rms * 3.2), ...meter };
     for (const node of this.pedals.values()) node.follow?.(shown);
   }
 

@@ -9,7 +9,13 @@ import {
   Gauge,
   Guitar,
   Headphones,
+  Library as LibraryIcon,
   ListMusic,
+  LogOut,
+  MicOff,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  Users,
   Mic2,
   Minus,
   Music2,
@@ -41,6 +47,24 @@ import type { Analysis, ChordEvent } from "@/lib/audio/types";
 import { downloadBlob, textBlob, wavBlob } from "@/lib/audio/wav";
 import { JamRoom } from "@/components/studio/jam-room";
 import { RigRoom } from "@/components/studio/rig-room";
+import { Tuner } from "@/components/studio/tuner";
+import { SongLibrary } from "@/components/studio/library";
+import { SettingsPage } from "@/components/studio/settings-page";
+import { ChordDiagram } from "@/components/studio/chord-diagram";
+import { stretchBuffer } from "@/lib/audio/run-stretch";
+import { addSong, getSongBlob, updateSong } from "@/lib/library";
+import { useSettings } from "@/lib/settings";
+
+type Desk = "jam" | "rig" | "studio" | "library" | "tuner" | "settings";
+
+const NAV: { id: Desk; label: string; short: string; icon: typeof Guitar }[] = [
+  { id: "jam", label: "ห้องซ้อม", short: "ห้องซ้อม", icon: Users },
+  { id: "rig", label: "แอมป์ & เอฟเฟค", short: "แอมป์", icon: SlidersHorizontal },
+  { id: "studio", label: "เครื่องมือแกะเพลง", short: "แกะเพลง", icon: AudioLines },
+  { id: "tuner", label: "จูนเนอร์", short: "จูน", icon: Gauge },
+  { id: "library", label: "คลังเพลง", short: "คลัง", icon: LibraryIcon },
+  { id: "settings", label: "ตั้งค่า", short: "ตั้งค่า", icon: SettingsIcon },
+];
 
 const ICONS = {
   vocal: Mic2,
@@ -79,7 +103,27 @@ export function StudioApp() {
   const [transpose, setTranspose] = useState(0);
   const [degrees, setDegrees] = useState(false);
   const [loop, setLoop] = useState<{ start: number; end: number } | null>(null);
-  const [desk, setDesk] = useState<"studio" | "jam" | "rig">("studio");
+  const [desk, setDesk] = useState<Desk>("jam");
+  const [visited, setVisited] = useState<Record<string, boolean>>({ jam: true });
+  const [keepPitch, setKeepPitch] = useState(true);
+  const [processing, setProcessing] = useState<number | null>(null);
+  const [songId, setSongId] = useState<string | null>(null);
+  const [jamInfo, setJamInfo] = useState<{ inRoom: boolean; online: number }>({ inRoom: false, online: 0 });
+  const leaveJamRef = useRef<(() => void) | null>(null);
+  const stretchJob = useRef(0);
+
+  useEffect(() => {
+    void useSettings.persist.rehydrate();
+  }, []);
+
+  function go(next: Desk) {
+    if (next !== "studio") {
+      playerRef.current?.pause();
+      setPlaying(false);
+    }
+    setVisited((prev) => (prev[next] ? prev : { ...prev, [next]: true }));
+    setDesk(next);
+  }
 
   const deskRef = useRef(desk);
   deskRef.current = desk;
@@ -226,6 +270,21 @@ export function StudioApp() {
       setPeaks(prepared.peaks);
       setAnalysis(prepared.analysis);
       setStatus("พร้อมเล่น");
+      engine.processed = null;
+      setSongId((current) => {
+        if (current) {
+          const a = prepared.analysis;
+          const names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+          const uniq = [...new Set(a.chords.filter((c) => c.root >= 0).map((c) => c.symbol))].slice(0, 8);
+          void updateSong(current, {
+            duration: a.duration,
+            bpm: a.bpm,
+            key: `${names[a.key.tonicPc]}${a.key.mode === "minor" ? "m" : ""}`,
+            chords: uniq,
+          });
+        }
+        return current;
+      });
     } catch (reason) {
       if (id !== jobRef.current) return;
       const message = reason instanceof Error ? reason.message : "วิเคราะห์ไม่สำเร็จ";
@@ -235,13 +294,22 @@ export function StudioApp() {
     }
   }
 
-  async function onFile(file: File) {
+  async function onFile(file: File, fromLibrary?: string) {
     setTitle(file.name.replace(/\.[^.]+$/, ""));
     setBusy(true);
     setError("");
     try {
       const ctx = player().ensure();
       const audio = await ctx.decodeAudioData(await file.arrayBuffer());
+      let id = fromLibrary ?? null;
+      if (!id) {
+        try {
+          id = (await addSong(file)).id;
+        } catch {
+          id = null; // storage full / private mode: still play it
+        }
+      } else void updateSong(id, { lastOpenedAt: Date.now() });
+      setSongId(id);
       await ingest(audio, file.name.replace(/\.[^.]+$/, ""));
     } catch {
       setBusy(false);
@@ -249,7 +317,16 @@ export function StudioApp() {
     }
   }
 
+  async function openFromLibrary(id: string) {
+    const found = await getSongBlob(id);
+    if (!found) return;
+    go("studio");
+    const name = found.meta.artist ? `${found.meta.artist} - ${found.meta.title}` : found.meta.title;
+    await onFile(new File([found.blob], `${name}.audio`, { type: found.meta.type }), id);
+  }
+
   async function onDemo() {
+    setSongId(null);
     const demo = renderDemo();
     const ctx = player().ensure();
     const buffer = ctx.createBuffer(2, demo.left.length, demo.sampleRate);
@@ -272,6 +349,53 @@ export function StudioApp() {
     setLoop(null);
   }
 
+  // Pitch-preserving slow-down and real key change (WSOLA, off the main thread).
+  useEffect(() => {
+    const engine = playerRef.current;
+    if (!engine?.original || !analysis) return;
+    const needs = transpose !== 0 || (keepPitch && Math.abs(rate - 1) > 1e-3);
+    const job = ++stretchJob.current;
+    if (!needs) {
+      engine.processed = null;
+      setProcessing(null);
+      if (engine.isPlaying()) engine.play(engine.currentTime());
+      return;
+    }
+    if (engine.processed && engine.processed.rate === rate && engine.processed.semitones === transpose) return;
+    const ctx = engine.ensure();
+    const original = engine.original;
+    const stems = [...engine.stems.entries()];
+    const total = 1 + stems.length;
+    setProcessing(0);
+    const timer = window.setTimeout(async () => {
+      try {
+        const out = await stretchBuffer(ctx, original, rate, transpose, (r) => {
+          if (job === stretchJob.current) setProcessing(r / total);
+        });
+        const outStems = new Map<StemId, AudioBuffer>();
+        for (let i = 0; i < stems.length; i++) {
+          if (job !== stretchJob.current) return;
+          const [id, buffer] = stems[i];
+          outStems.set(id, await stretchBuffer(ctx, buffer, rate, transpose, (r) => {
+            if (job === stretchJob.current) setProcessing((i + 1 + r) / total);
+          }));
+        }
+        if (job !== stretchJob.current) return;
+        const wasPlaying = engine.isPlaying();
+        const at = engine.currentTime();
+        engine.processed = { rate, semitones: transpose, original: out, stems: outStems };
+        if (wasPlaying) engine.play(at);
+        setProcessing(null);
+      } catch {
+        if (job === stretchJob.current) {
+          setProcessing(null);
+          setNotice("ประมวลผลความเร็ว/คีย์ไม่สำเร็จ ลองไฟล์ที่สั้นลง");
+        }
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [rate, transpose, keepPitch, analysis]);
+
   const view = useMemo(() => {
     if (!analysis) return null;
     const tonic = (analysis.key.tonicPc + transpose + 12) % 12;
@@ -281,88 +405,132 @@ export function StudioApp() {
     return { tonic, flats, chords, current, capo: capoSuggestion(tonic, analysis.key.mode) };
   }, [analysis, transpose, time]);
 
+  const activeNav = NAV.find((item) => item.id === desk) ?? NAV[0];
+
   return (
-    <div className="min-h-screen bg-bg text-fg">
-      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-line bg-bg px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-brass text-brass-ink">
-            <AudioLines className="size-5" aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-base font-semibold leading-tight">เลน</p>
-            <p className="truncate text-xs text-muted">
-              {desk === "jam" ? "ห้องซ้อม · แจมไมดีเลย์" : desk === "rig" ? "ตู้แอมป์ · ซ้อมพร้อมเพลง" : title || "LANE · แยกเสียงในเบราว์เซอร์"}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="flex rounded-md border border-line bg-surface p-1">
-            <button
-              type="button"
-              onClick={() => setDesk("studio")}
-              className={`h-11 rounded-md px-3 text-sm font-medium ${desk === "studio" ? "bg-brass text-brass-ink" : ""}`}
-            >
-              สตูดิโอ
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                playerRef.current?.pause();
-                setPlaying(false);
-                setDesk("rig");
-              }}
-              className={`h-11 rounded-md px-3 text-sm font-medium ${desk === "rig" ? "bg-brass text-brass-ink" : ""}`}
-            >
-              ตู้แอมป์
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                playerRef.current?.pause();
-                setPlaying(false);
-                setDesk("jam");
-              }}
-              className={`h-11 rounded-md px-3 text-sm font-medium ${desk === "jam" ? "bg-brass text-brass-ink" : ""}`}
-            >
-              ห้องซ้อม
-            </button>
-          </div>
-          {analysis && desk === "studio" ? (
-          <button
-            type="button"
-            onClick={reset}
-            className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm"
-          >
-            <RotateCcw className="size-4" aria-hidden="true" />
-            เพลงใหม่
+    <div className="min-h-screen text-fg">
+      <header className="safe-top sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-2 sm:px-4">
+          <button type="button" onClick={() => go("jam")} className="flex min-w-0 items-center gap-2 text-left">
+            <Logo />
+            <span className="min-w-0">
+              <span className="block text-lg font-bold leading-tight tracking-tight">JamStudio</span>
+              <span className="block truncate text-[11px] text-muted">Play Together, Get Better</span>
+            </span>
           </button>
-        ) : null}
+          <nav className="mx-auto hidden items-center gap-1 lg:flex" aria-label="เมนูหลัก">
+            {NAV.map((item) => {
+              const Icon = item.icon;
+              const on = desk === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => go(item.id)}
+                  aria-current={on ? "page" : undefined}
+                  className={`flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-xs font-medium ${on ? "bg-brass/20 text-fg ring-1 ring-brass" : "text-muted hover:text-fg"}`}
+                >
+                  <Icon className="size-5" aria-hidden="true" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="ml-auto flex items-center gap-2 lg:ml-0">
+            {jamInfo.inRoom ? (
+              <>
+                <span className="hidden items-center gap-2 panel px-3 py-2 text-sm sm:flex">
+                  <span className="h-2.5 w-2.5 rounded-full bg-olive shadow-[0_0_8px_var(--color-olive)]" />
+                  ออนไลน์ {jamInfo.online}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => leaveJamRef.current?.()}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-danger px-3 text-sm font-semibold text-white"
+                >
+                  <LogOut className="size-4" aria-hidden="true" />
+                  ออก
+                </button>
+              </>
+            ) : null}
+            {analysis && desk === "studio" ? (
+              <button
+                type="button"
+                onClick={reset}
+                className="inline-flex h-10 items-center gap-2 panel px-3 text-sm"
+              >
+                <RotateCcw className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">เพลงใหม่</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => go("settings")}
+              aria-label="ตั้งค่า"
+              className="grid h-10 w-10 place-items-center panel lg:hidden"
+            >
+              <SettingsIcon className="size-4" aria-hidden="true" />
+            </button>
+          </div>
         </div>
+        <p className="sr-only" aria-live="polite">
+          {activeNav.label}
+        </p>
       </header>
 
-      {desk === "rig" ? (
-        <RigRoom
-          pullStudio={() => {
-            const buffer = playerRef.current?.original ?? null;
-            if (!buffer) return null;
-            return { buffer, title: title || "เพลงจากสตูดิโอ", bpm: analysis?.bpm ?? null };
-          }}
-        />
-      ) : desk === "jam" ? (
-        <JamRoom />
-      ) : !analysis ? (
-        <Landing
-          busy={busy}
-          status={status}
-          ratio={ratio}
-          error={error}
-          onUpload={() => fileRef.current?.click()}
-          onDemo={() => void onDemo()}
-          onDropFile={(file) => void onFile(file)}
-          onJam={() => setDesk("jam")}
-          onRig={() => setDesk("rig")}
-        />
-      ) : view ? (
+      <div className="pb-20 lg:pb-0">
+        {visited.jam ? (
+          <div hidden={desk !== "jam"}>
+            <JamRoom
+              active={desk === "jam"}
+              onStatus={(inRoom, online, leave) => {
+                leaveJamRef.current = leave;
+                setJamInfo((prev) => (prev.inRoom === inRoom && prev.online === online ? prev : { inRoom, online }));
+              }}
+            />
+          </div>
+        ) : null}
+        {visited.rig ? (
+          <div hidden={desk !== "rig"}>
+            <RigRoom
+              active={desk === "rig"}
+              pullStudio={() => {
+                const buffer = playerRef.current?.original ?? null;
+                if (!buffer) return null;
+                return { buffer, title: title || "เพลงจากเครื่องมือแกะเพลง", bpm: analysis?.bpm ?? null };
+              }}
+            />
+          </div>
+        ) : null}
+        {desk === "tuner" ? <Tuner /> : null}
+        {desk === "library" ? (
+          <SongLibrary
+            onOpen={(id) => void openFromLibrary(id)}
+            onUpload={(file) => {
+              go("studio");
+              void onFile(file);
+            }}
+            onDemo={() => {
+              go("studio");
+              void onDemo();
+            }}
+          />
+        ) : null}
+        {desk === "settings" ? <SettingsPage /> : null}
+        {desk === "studio" ? (
+          !analysis ? (
+            <Landing
+              busy={busy}
+              status={status}
+              ratio={ratio}
+              error={error}
+              onUpload={() => fileRef.current?.click()}
+              onDemo={() => void onDemo()}
+              onDropFile={(file) => void onFile(file)}
+              onJam={() => go("jam")}
+              onRig={() => go("rig")}
+            />
+          ) : view ? (
         <Studio
           analysis={analysis}
           peaks={peaks}
@@ -404,7 +572,9 @@ export function StudioApp() {
             pushMix("stems", volumes, map);
           }}
         />
-      ) : null}
+          ) : null
+        ) : null}
+      </div>
 
       {analysis && desk === "studio" ? (
         <Transport
@@ -415,6 +585,11 @@ export function StudioApp() {
           rate={rate}
           metro={metro}
           loop={loop}
+          transpose={transpose}
+          keyName={view ? formatPc(view.tonic, view.flats) + (analysis.key.mode === "minor" ? "m" : "") : ""}
+          keepPitch={keepPitch}
+          processing={processing}
+          vocalCut={muted.vocal && mode === "stems"}
           onToggle={() => void toggle()}
           onMode={(next) => pushMix(next, volumes, audible)}
           onRate={(next) => {
@@ -422,6 +597,16 @@ export function StudioApp() {
             const engine = player();
             engine.rate = next;
             if (engine.isPlaying()) engine.play(engine.currentTime());
+          }}
+          onTranspose={setTranspose}
+          onKeepPitch={setKeepPitch}
+          onVocalCut={() => {
+            const nextMuted = { ...muted, vocal: !(muted.vocal && mode === "stems") };
+            setMuted(nextMuted);
+            const anySolo = STEM_IDS.some((stem) => solo[stem]);
+            const map = {} as Audible;
+            for (const stem of STEM_IDS) map[stem] = anySolo ? solo[stem] : !nextMuted[stem];
+            pushMix("stems", volumes, map);
           }}
           onMetro={(next) => {
             setMetro(next);
@@ -431,6 +616,33 @@ export function StudioApp() {
           onClearLoop={() => setLoop(null)}
         />
       ) : null}
+
+      <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg/95 backdrop-blur lg:hidden" aria-label="เมนูหลัก">
+        <div className="mx-auto grid max-w-xl grid-cols-5">
+          {NAV.filter((item) => item.id !== "settings").map((item) => {
+            const Icon = item.icon;
+            const on = desk === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => go(item.id)}
+                aria-current={on ? "page" : undefined}
+                className={`flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium ${on ? "text-brass" : "text-muted"}`}
+              >
+                <Icon className="size-5" aria-hidden="true" />
+                {item.short}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      <footer className="mx-auto hidden max-w-7xl items-center justify-between px-4 py-4 text-xs text-muted lg:flex">
+        <span>JamStudio v1.0.0</span>
+        <span className="italic">“Music is a safe place for everyone”</span>
+        <span>เสียงประมวลผลในเครื่องคุณ</span>
+      </footer>
 
       <input
         ref={fileRef}
@@ -444,6 +656,17 @@ export function StudioApp() {
         }}
       />
     </div>
+  );
+}
+
+function Logo() {
+  return (
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#5b8cff] to-[#2448c8] shadow-lg shadow-brass/30">
+      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+        <path d="M12 2.5c3.6 0 6.5 1.2 6.5 1.2s.6 6.6-2.2 11.2c-1.6 2.7-4.3 5.6-4.3 5.6s-2.7-2.9-4.3-5.6C4.9 10.3 5.5 3.7 5.5 3.7S8.4 2.5 12 2.5Z" fill="#fff" />
+        <path d="M13.2 6.5v6.2a1.9 1.9 0 1 1-1.2-1.8V7.4l3-.9v1.3l-1.8.7Z" fill="#2448c8" />
+      </svg>
+    </span>
   );
 }
 
@@ -470,7 +693,7 @@ function Landing({
 }) {
   return (
     <main
-      className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8 lg:py-12"
+      className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 lg:py-12"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -480,11 +703,11 @@ function Landing({
     >
       <div className="grid items-start gap-8 lg:grid-cols-12">
         <section className="lg:col-span-7">
-          <p className="text-sm font-medium text-brass">สตูดิโอแยกเสียง</p>
-          <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">แยกเลนเสียง แกะคอร์ด แล้วติดแท็กให้เพลง</h1>
+          <p className="text-sm font-medium text-brass">เครื่องมือแกะเพลง</p>
+          <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">ลดความเร็ว เปลี่ยนคีย์ ตัดเสียงร้อง แล้วแกะคอร์ด</h1>
           <p className="mt-4 max-w-xl text-base text-muted">
-            วางเพลงลงไป เลนจะแยกเสียงร้อง เบส กลองเตะ กลอง ฉาบ และฮาร์โมนี ให้โซโลหรือดาวน์โหลดได้
-            พร้อมคอร์ดตามเวลา คีย์ สเกล คาโป และแท็กอารมณ์ ทุกอย่างเกิดในเบราว์เซอร์ ไฟล์ไม่ถูกส่งออกไปไหน
+            วางเพลงลงไป ระบบจะแยกเสียงร้อง เบส กลอง และฮาร์โมนี ปรับช้าลงโดยเสียงไม่เพี้ยน ย้ายคีย์ทั้งเพลง
+            วนท่อนที่เลือก พร้อมคอร์ดตามเวลาและรูปจับกีตาร์ ทุกอย่างประมวลผลในเครื่อง ไฟล์ไม่ถูกส่งออกไปไหน
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
@@ -512,7 +735,7 @@ function Landing({
               className="inline-flex h-12 items-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold"
             >
               <Guitar className="size-4" aria-hidden="true" />
-              ตู้แอมป์ซ้อม
+              แอมป์ & เอฟเฟค
             </button>
             <button
               type="button"
@@ -526,12 +749,12 @@ function Landing({
           </div>
           <p className="mt-3 text-xs text-muted">รองรับ wav, mp3, ogg สูงสุด 3 นาทีต่อการวิเคราะห์ ลากไฟล์มาวางได้</p>
           {error ? (
-            <p role="alert" className="mt-4 text-sm text-brass">
+            <p role="alert" className="mt-4 text-sm text-danger">
               {error}
             </p>
           ) : null}
           {busy ? (
-            <div className="mt-6 rounded-lg border border-line bg-surface p-4" aria-live="polite">
+            <div className="mt-6 panel p-4" aria-live="polite">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span>{status}</span>
                 <span className="tabular-nums text-muted">{Math.round(ratio * 100)}%</span>
@@ -542,8 +765,8 @@ function Landing({
             </div>
           ) : null}
         </section>
-        <aside className="rounded-lg border border-line bg-surface p-4 lg:col-span-5">
-          <p className="text-xs font-medium tracking-wide text-muted">เลนในมิกเซอร์</p>
+        <aside className="panel p-4 lg:col-span-5">
+          <p className="text-xs font-medium tracking-wide text-muted">แยกเสียงได้ 6 เลน</p>
           <ul className="mt-3 flex flex-col gap-2">
             {STEMS.map((stem) => {
               const Icon = ICONS[stem.id];
@@ -577,7 +800,7 @@ function Landing({
 
 function Feature({ icon: Icon, title, body }: { icon: typeof Gauge; title: string; body: string }) {
   return (
-    <article className="rounded-lg border border-line bg-surface p-4">
+    <article className="panel p-4">
       <Icon className="size-5 text-brass" aria-hidden="true" />
       <h2 className="mt-3 text-base font-semibold">{title}</h2>
       <p className="mt-1 text-sm text-muted">{body}</p>
@@ -660,9 +883,9 @@ function Studio({
   }
 
   return (
-    <main className="mx-auto grid w-full max-w-6xl gap-4 px-4 py-4 pb-48 lg:grid-cols-12">
+    <main className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-4 pb-56 sm:px-4 lg:grid-cols-12">
       <aside className="order-2 flex flex-col gap-4 lg:order-1 lg:col-span-4">
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <p className="text-xs text-muted">คีย์</p>
           <p className="text-3xl font-semibold tracking-tight">{keyName}</p>
           <p className="text-sm text-muted">
@@ -689,7 +912,7 @@ function Studio({
           </p>
         </section>
 
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs text-muted">คอร์ดตอนนี้</p>
@@ -715,7 +938,7 @@ function Studio({
           <Piano tones={tones} />
         </section>
 
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <h2 className="text-sm font-semibold">แท็ก</h2>
           <ul className="mt-3 flex flex-wrap gap-2">
             {analysis.tags.map((tag) => (
@@ -742,7 +965,7 @@ function Studio({
         ) : null}
         <Waveform peaks={peaks} time={time} duration={analysis.duration} beats={analysis.beats} loop={loop} onCue={onCue} />
         <Spectrogram spectro={analysis.spectro} time={time} duration={analysis.duration} onCue={onCue} />
-        <div className="rounded-lg border border-line bg-surface p-3">
+        <div className="panel p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">คอร์ดตามเวลา</h2>
             <p className="text-xs text-muted">แตะเพื่อกระโดด</p>
@@ -766,6 +989,23 @@ function Studio({
             })}
           </div>
         </div>
+        <div className="panel p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">คอร์ดกีตาร์ที่ใช้ในเพลง</h2>
+            <p className="text-xs text-muted">{view.capo.capo > 0 ? `หรือคาโป ${view.capo.capo} จับรูป ${view.capo.shape}` : "ตำแหน่งตามคีย์ที่เลือก"}</p>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {uniqueChords(view.chords).map((chord) => (
+              <ChordDiagram
+                key={chord.symbol}
+                root={chord.root}
+                suffix={chord.suffix}
+                label={chord.symbol}
+                active={view.current?.symbol === chord.symbol}
+              />
+            ))}
+          </div>
+        </div>
         {analysis.sections.length > 1 ? (
           <div className="flex gap-2 overflow-x-auto">
             {analysis.sections.map((section) => (
@@ -787,7 +1027,7 @@ function Studio({
             const data = analysis.stems.find((item) => item.id === stem.id);
             const Icon = ICONS[stem.id];
             return (
-              <article key={stem.id} className="rounded-lg border border-line bg-surface p-3">
+              <article key={stem.id} className="panel p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`grid h-10 w-10 place-items-center rounded-md ${stem.tonal ? "bg-brass text-brass-ink" : "bg-olive text-brass-ink"}`}
@@ -839,7 +1079,7 @@ function Studio({
           </p>
         </div>
 
-        <section className="rounded-lg border border-line bg-surface p-4">
+        <section className="panel p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold">ชาร์ตคอร์ด</h2>
             <div className="flex flex-wrap items-center gap-2">
@@ -1029,7 +1269,7 @@ function Waveform({
   }, [peaks, time, duration, beats, loop]);
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-3">
+    <div className="panel p-3">
       <div className="mb-2 flex items-center justify-between text-xs text-muted">
         <span>คลื่นเสียง</span>
         <span className="tabular-nums">
@@ -1103,7 +1343,7 @@ function Spectrogram({
 
   const playhead = duration > 0 ? `${(time / duration) * 100}%` : "0%";
   return (
-    <div className="rounded-lg border border-line bg-surface p-3">
+    <div className="panel p-3">
       <p className="mb-2 text-xs text-muted">สเปกโตรแกรม</p>
       <div
         className="relative h-24"
@@ -1127,9 +1367,17 @@ function Transport({
   rate,
   metro,
   loop,
+  transpose,
+  keyName,
+  keepPitch,
+  processing,
+  vocalCut,
   onToggle,
   onMode,
   onRate,
+  onTranspose,
+  onKeepPitch,
+  onVocalCut,
   onMetro,
   onClearLoop,
 }: {
@@ -1140,15 +1388,25 @@ function Transport({
   rate: number;
   metro: boolean;
   loop: { start: number; end: number } | null;
+  transpose: number;
+  keyName: string;
+  keepPitch: boolean;
+  processing: number | null;
+  vocalCut: boolean;
   onToggle: () => void;
   onMode: (mode: "original" | "stems") => void;
   onRate: (rate: number) => void;
+  onTranspose: (value: number) => void;
+  onKeepPitch: (value: boolean) => void;
+  onVocalCut: () => void;
   onMetro: (value: boolean) => void;
   onClearLoop: () => void;
 }) {
+  const pct = Math.round(rate * 100);
+  const step = (delta: number) => onRate(Math.min(1.5, Math.max(0.5, Math.round((rate + delta) * 100) / 100)));
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg px-3 py-2">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2">
+    <div className="safe-bottom fixed inset-x-0 bottom-16 z-30 border-t border-line bg-bg/95 px-3 py-2 backdrop-blur lg:bottom-0">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onToggle}
@@ -1169,28 +1427,59 @@ function Transport({
             มิกซ์เลน
           </Chip>
         </div>
-        <div className="flex gap-1">
-          {[0.75, 1, 1.25].map((value) => (
-            <Chip key={value} on={rate === value} onClick={() => onRate(value)}>
-              {value === 1 ? "1×" : `${value}×`}
-            </Chip>
-          ))}
+        <div className="flex items-center rounded-md border border-line bg-surface" aria-label="ความเร็ว">
+          <button type="button" aria-label="ช้าลง" onClick={() => step(-0.05)} className="grid h-10 w-9 place-items-center">
+            <Minus className="size-4" aria-hidden="true" />
+          </button>
+          <span className="w-14 text-center text-sm font-semibold tabular-nums">{pct}%</span>
+          <button type="button" aria-label="เร็วขึ้น" onClick={() => step(0.05)} className="grid h-10 w-9 place-items-center">
+            <Plus className="size-4" aria-hidden="true" />
+          </button>
         </div>
+        <div className="flex items-center rounded-md border border-line bg-surface" aria-label="เปลี่ยนคีย์">
+          <button type="button" aria-label="ลดคีย์" onClick={() => onTranspose(Math.max(-6, transpose - 1))} className="grid h-10 w-9 place-items-center">
+            <Minus className="size-4" aria-hidden="true" />
+          </button>
+          <span className="min-w-20 text-center text-sm font-semibold tabular-nums">
+            คีย์ {keyName}
+            {transpose !== 0 ? <span className="ml-1 text-xs text-brass">{transpose > 0 ? `+${transpose}` : transpose}</span> : null}
+          </span>
+          <button type="button" aria-label="เพิ่มคีย์" onClick={() => onTranspose(Math.min(6, transpose + 1))} className="grid h-10 w-9 place-items-center">
+            <Plus className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+        <button
+          type="button"
+          aria-pressed={vocalCut}
+          onClick={onVocalCut}
+          className={`inline-flex h-10 items-center gap-1 rounded-md px-3 text-sm ${vocalCut ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
+        >
+          <MicOff className="size-4" aria-hidden="true" />
+          ตัดเสียงร้อง
+        </button>
         <button
           type="button"
           aria-pressed={metro}
           onClick={() => onMetro(!metro)}
-          className={`inline-flex h-11 items-center gap-1 rounded-md px-3 text-sm ${metro ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
+          className={`inline-flex h-10 items-center gap-1 rounded-md px-3 text-sm ${metro ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
         >
           <Timer className="size-4" aria-hidden="true" />
           คลิก
         </button>
-        {loop ? (
-          <button type="button" onClick={onClearLoop} className="h-11 rounded-md border border-line px-3 text-sm text-brass">
-            กำลังวน
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input type="checkbox" checked={keepPitch} onChange={(event) => onKeepPitch(event.target.checked)} className="h-4 w-4 accent-[var(--color-brass)]" />
+          รักษาระดับเสียง
+        </label>
+        {processing != null ? (
+          <span className="text-xs text-brass" aria-live="polite">
+            กำลังประมวลผล {Math.round(processing * 100)}%
+          </span>
+        ) : loop ? (
+          <button type="button" onClick={onClearLoop} className="h-10 rounded-md border border-line px-3 text-sm text-brass">
+            กำลังวน · ยกเลิก
           </button>
         ) : (
-          <p className="hidden text-xs text-muted sm:block">สเปซเพื่อเล่น · ความเร็วเปลี่ยนระดับเสียงตาม</p>
+          <p className="hidden text-xs text-muted xl:block">สเปซบาร์ = เล่น/หยุด</p>
         )}
       </div>
     </div>
@@ -1202,11 +1491,23 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
     <button
       type="button"
       onClick={onClick}
-      className={`h-11 rounded-md px-3 text-sm ${on ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
+      className={`h-10 rounded-md px-3 text-sm ${on ? "bg-brass text-brass-ink" : "border border-line bg-surface"}`}
     >
       {children}
     </button>
   );
+}
+
+function uniqueChords(chords: ChordEvent[]): ChordEvent[] {
+  const seen = new Set<string>();
+  const out: ChordEvent[] = [];
+  for (const chord of chords) {
+    if (chord.root < 0 || seen.has(chord.symbol)) continue;
+    seen.add(chord.symbol);
+    out.push(chord);
+    if (out.length >= 12) break;
+  }
+  return out;
 }
 
 function chartBody(

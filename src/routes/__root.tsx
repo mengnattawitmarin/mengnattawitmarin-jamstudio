@@ -3,16 +3,16 @@ import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "เลน";
+const APP_NAME = "JamStudio";
 
 export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: `${APP_NAME} — แยกเสียง ห้องซ้อมแจม` },
-      { name: "theme-color", content: "#100f0c" },
-      { name: "description", content: "แยกเลนเครื่องดนตรี แกะคอร์ด และห้องซ้อมแจมออนไลน์ที่เสียงตัวเองไมดีเลย์" },
+      { title: `${APP_NAME} — ห้องซ้อมดนตรีออนไลน์ แอมป์ เอฟเฟกต์ จูนเนอร์` },
+      { name: "theme-color", content: "#0a1020" },
+      { name: "description", content: "ห้องซ้อมดนตรีออนไลน์ แอมป์และเอฟเฟกต์กีตาร์ จูนเนอร์ และเครื่องมือแกะเพลง ลดความเร็ว เปลี่ยนคีย์ ตัดเสียงร้อง" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
@@ -21,7 +21,7 @@ export const Route = createRootRoute({
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Caveat:wght@600&display=swap",
       },
     ],
   }),
