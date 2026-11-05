@@ -39,7 +39,7 @@ src/lib/multiplayer/signaling.server.ts /api/rtc (+CORS)
 src/lib/settings.ts                    zustand persist (localStorage "jamstudio-settings"), apiBase()
 src/lib/library.ts                     IndexedDB "jamstudio"/songs
 mobile/                                entry SPA, manifest, sw.js, ไอคอน PWA
-capacitor.config.json                  appId com.mengnattawit.kakunstudio, webDir dist-mobile
+capacitor.config.json                  appId com.kakunstudio.app (เปลี่ยนจาก com.mengnattawit.kakunstudio เพื่อหนีลายเซ็นเก่า), webDir dist-mobile
 tool/patch-native.mjs                  ใส่ permission ไมค์ / version ลง android/ ios/ ที่สร้างใหม่บน CI
 tool/signing/debug.keystore            คีย์ทดสอบ (CI เท่านั้น ให้ APK ติดตั้งทับกันได้) — ห้ามใช้ขึ้น Play Store
 .github/workflows/build.yml            typecheck → test → build:mobile → Pages / APK / iOS ipa → Release "build-N"
