@@ -717,7 +717,7 @@ function Session({
 
   return (
     <main className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
+      <aside className="order-2 flex flex-col gap-4 lg:order-1 lg:sticky lg:top-20 lg:self-start">
         <section className="panel p-3">
           <h2 className="px-1 text-base font-semibold">ห้องซ้อมออนไลน์</h2>
           <ul className="mt-2 flex flex-col gap-1">
@@ -804,7 +804,7 @@ function Session({
         </section>
       </aside>
 
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className="order-1 flex min-w-0 flex-col gap-4 lg:order-2">
       <StageRoom
         onEditAvatar={() => setPicking((v) => !v)}
         members={[

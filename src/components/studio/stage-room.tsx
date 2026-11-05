@@ -120,14 +120,14 @@ export function StageRoom({ members, onEditAvatar }: { members: StageMember[]; o
         ) : null}
       </div>
 
-      <div className="relative mx-auto w-full max-w-3xl" style={{ aspectRatio: "390 / 560", maxHeight: "78vh" }}>
+      <div className="relative mx-auto" style={{ aspectRatio: "390 / 560", width: "min(100%, calc(76vh * 390 / 560))" }}>
         {ar ? (
           <>
             <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full object-cover" />
             {camError ? <div className="absolute inset-0 bg-[linear-gradient(180deg,#3a3a42,#1d1d22_55%,#2b2b31)]" /> : null}
           </>
         ) : null}
-        <svg viewBox="0 0 390 560" className="absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMid slice" role="img" aria-label={`ห้องซ้อม มี ${members.length} คน`}>
+        <svg viewBox="0 0 390 560" className="absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMid meet" role="img" aria-label={`ห้องซ้อม มี ${members.length} คน`}>
           <defs>
             <filter id="neon" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation="2.4" result="b" />
