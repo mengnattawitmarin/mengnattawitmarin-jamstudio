@@ -62,7 +62,10 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.getByRole("button", { name: /ปรับ ฟัซซ์/ }).click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: `qa/${label}-rig-hendrix.png`, fullPage: label === "desktop" });
-  await page.getByRole("option", { name: /ทวีด/ }).first().click().catch(() => log.push(`[${label}] amp switch missing`));
+  const opts = page.locator('[role="listbox"][aria-label="หัวแอมป์"] [role="option"]');
+  log.push(`[${label}] amp options: ${await opts.count()}`);
+  await opts.nth(5).scrollIntoViewIfNeeded().catch(() => undefined);
+  await opts.nth(5).click({ timeout: 5000 }).catch((e) => log.push(`[${label}] amp switch failed: ${String(e).slice(0, 160)}`));
   await page.waitForTimeout(400);
   await page.screenshot({ path: `qa/${label}-rig-tweed.png`, fullPage: label === "desktop" });
   await page.getByRole("button", { name: "ตู้แอมป์" }).first().click();
