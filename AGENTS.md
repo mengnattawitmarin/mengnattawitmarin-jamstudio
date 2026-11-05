@@ -79,6 +79,7 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 - ⚠️ GitHub Pages ต้องเปิดเองครั้งแรก: Settings → Pages → Source: GitHub Actions
 
 ## งานถัดไป (เรียงตามความสำคัญ)
+0. **ห้องซ้อม 3D/AR** (คอนเซปต์อนุมัติรอ feedback): เลือกตัวละคร (สไตล์/สีชุด/เครื่องดนตรี) → ห้องซ้อม 3D (ผนังอิฐ, แอมป์, กลอง, ป้ายชื่อ+มิเตอร์เสียงลอยหัว) → โหมด AR วางวงบนพื้นจริงผ่านกล้อง. แนวทาง: three.js + WebXR (Android Chrome) / ภาพกล้อง + พื้นจำลองสำหรับ iOS, ส่ง pose/อีโมตผ่าน P2P data channel ที่มีอยู่
 1. ทดสอบบนเครื่องจริง (ดีเลย์ไลน์อิน Android/iOS, สิทธิ์ไมค์ใน WebView) แล้วแก้
 2. Deploy เว็บเต็ม (Vercel + Neon) แล้วตั้ง `JAMSTUDIO_API_BASE` ให้ห้องซ้อมในแอปมือถือใช้ได้
 3. ส่งเสียงจากแอมป์จำลองเข้าห้องซ้อม (MediaStreamDestination ของ RigEngine → p2p.setLocalStream)
@@ -90,5 +91,6 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 ## บันทึกการส่งต่อ (เพิ่มรายการใหม่ไว้บนสุด)
 | วันที่ | ผู้ทำ | ทำอะไร | ค้าง/ข้อควรรู้ |
 |---|---|---|---|
+| 2026-11-05 | Claude (claude.ai) | แก้ติดตั้ง APK ไม่ได้ ("แพ็กเกจขัดแย้ง"): บังคับเซ็นด้วย tool/signing/debug.keystore ผ่าน patch-native + ตรวจ SHA-256 ใน CI (bb6402…d453) | ผู้ใช้ต้องลบแอปเก่าครั้งเดียว หลังจากนั้นอัปเดตทับได้ |
 | 2026-11-05 | Claude (claude.ai) | v2: เปลี่ยนชื่อเป็น Kakunstudio, ธีม rock-pop, โลโก้สายฟ้า, หน้าแรกใหม่, เมนู 5 หมวด, รวมแกะเพลง+คลังเพลงเป็นหมวด "เพลง", Studio แบ่งแท็บ | appId เปลี่ยนเป็น com.mengnattawit.kakunstudio → ต้องลบแอปเก่า (JamStudio) เองถ้าติดตั้งไว้ |
 | 2026-11-03 | Claude (claude.ai) | นำเข้าโค้ด Grok "เลน" → Kakunstudio v1: UI ใหม่ตามดีไซน์, จูนเนอร์, rig แบบภาพ+ตู้/ไมค์/IR+I/O+howl guard, ก้อนใหม่ 4, แอมป์ใหม่ 4, พรีเซ็ตศิลปิน 8, WSOLA, คลังเพลง, แชท, ไดอะแกรมคอร์ด, Capacitor+CI | ยังไม่ทดสอบเครื่องจริง; Pages ต้องเปิดเอง; ห้องซ้อมบนมือถือต้องมี server URL |
