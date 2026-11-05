@@ -22,7 +22,7 @@ export function Knob({
   label: string;
   display?: string;
   size?: number;
-  variant?: "black" | "gold" | "chrome";
+  variant?: "black" | "gold" | "chrome" | "cream" | "red";
   onChange: (value: number) => void;
 }) {
   const drag = useRef<{ y: number; x: number; start: number } | null>(null);
@@ -60,8 +60,8 @@ export function Knob({
     event.preventDefault();
   }
 
-  const capClass = variant === "gold" ? "knob-cap gold" : "knob-cap";
-  const tick = variant === "gold" ? "#3a2a08" : "#f4f4f4";
+  const capClass = variant === "black" ? "knob-cap" : `knob-cap ${variant}`;
+  const tick = variant === "gold" || variant === "cream" || variant === "chrome" ? "#2a1d0e" : "#f4f4f4";
 
   return (
     <div className="flex select-none flex-col items-center gap-1">

@@ -22,6 +22,7 @@ import {
 import { Knob } from "@/components/ui/knob";
 import { useSettings } from "@/lib/settings";
 import { PENDING_PRESET_KEY } from "@/components/studio/home";
+import { ampLook, type AmpLook } from "@/lib/audio/amp-looks";
 import { renderDemo } from "@/lib/audio/demo-track";
 import { formatClock } from "@/lib/audio/theory";
 import {
@@ -663,13 +664,43 @@ export function RigRoom({ pullStudio, active = true }: { pullStudio: () => Pull 
 
               <section className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
                 <AmpHead
+                  key={activeAmp.id}
                   name={activeAmp.name}
+                  look={ampLook(activeAmp.id)}
                   tube={activeAmp.tube}
                   knobs={rig.knobs}
                   onKnob={(key, value) => commit((current) => ({ ...current, knobs: { ...current.knobs, [key]: value } }))}
                   onPower={() => engineRef.current?.rearmFeedback()}
                 />
-                <Cabinet label={rig.cab === "ir" ? irName || "IR" : (CABS.find((cab) => cab.id === rig.cab)?.name ?? "")} />
+                <Cabinet look={ampLook(activeAmp.id)} label={rig.cab === "ir" ? irName || "IR" : (CABS.find((cab) => cab.id === rig.cab)?.name ?? "")} />
+              </section>
+
+              {/* Quick amp switcher: the head above re-skins to the picked model */}
+              <section className="panel p-3">
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <h2 className="text-sm font-semibold">เปลี่ยนหัวแอมป์</h2>
+                  <button type="button" onClick={() => setView("amps")} className="text-xs text-muted underline">
+                    ดูรายละเอียดทั้งหมด
+                  </button>
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" role="listbox" aria-label="หัวแอมป์">
+                  {AMPS.filter((amp) => amp.family === (rig.source === "bass" ? "bass" : activeAmp.family)).map((amp) => {
+                    const on = amp.id === rig.amp;
+                    return (
+                      <button
+                        key={amp.id}
+                        type="button"
+                        role="option"
+                        aria-selected={on}
+                        onClick={() => commit((current) => ({ ...current, amp: amp.id }))}
+                        className={`flex w-28 shrink-0 flex-col items-center gap-1 rounded-lg border-2 p-1.5 ${on ? "border-brass bg-brass/10" : "border-transparent hover:border-line"}`}
+                      >
+                        <AmpThumb look={ampLook(amp.id)} />
+                        <span className={`line-clamp-1 text-center text-[11px] font-semibold ${on ? "text-fg" : "text-muted"}`}>{amp.name.split(" · ")[0]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
 
               <section className="panel p-4">
@@ -1392,30 +1423,41 @@ function PedalEditor({
 
 function AmpHead({
   name,
+  look,
   tube,
   knobs,
   onKnob,
   onPower,
 }: {
   name: string;
+  look: AmpLook;
   tube: boolean;
   knobs: RigSnapshot["knobs"];
   onKnob: (key: keyof RigSnapshot["knobs"], value: number) => void;
   onPower: () => void;
 }) {
+  const logoClass =
+    look.logoFont === "script"
+      ? "font-[family-name:var(--font-script)] text-2xl sm:text-3xl"
+      : "title-rock text-3xl tracking-[0.12em] sm:text-4xl";
   return (
-    <div className="amp-tolex overflow-hidden rounded-xl border-2 border-[#2b2b2b] p-2 shadow-2xl">
-      <div className="amp-grille grid h-16 place-items-center rounded-md border border-black/60 sm:h-20">
-        <span className="px-2 text-center font-[family-name:var(--font-script)] text-2xl italic text-[#f3e6c4] drop-shadow sm:text-3xl">{name}</span>
+    <div className="animate-[ampIn_260ms_ease-out] overflow-hidden rounded-xl border-2 border-black p-2 shadow-[4px_4px_0_#000]" style={{ background: look.tolex }}>
+      <div
+        className="grid h-16 place-items-center rounded-md sm:h-20"
+        style={{ background: look.grille, boxShadow: `inset 0 0 0 2px ${look.piping}, inset 0 0 18px rgb(0 0 0 / 0.55)` }}
+      >
+        <span className={`px-2 text-center drop-shadow ${logoClass}`} style={{ color: look.logo }}>
+          {name}
+        </span>
       </div>
-      <div className="amp-plate mt-2 flex flex-wrap items-end justify-around gap-x-2 gap-y-3 rounded-md px-2 py-3">
+      <div className="mt-2 flex flex-wrap items-end justify-around gap-x-2 gap-y-3 rounded-md px-2 py-3" style={{ background: look.plate, color: look.plateInk }}>
         <button type="button" onClick={onPower} aria-label="เปิดเสียงใหม่ (ถ้าถูกตัดเพราะเสียงหอน)" className="flex flex-col items-center gap-1">
-          <span className={`h-3 w-3 rounded-full ${tube ? "bg-red-600 shadow-[0_0_8px_2px_rgba(220,38,38,0.7)]" : "bg-amber"}`} />
-          <span className="text-[10px] font-semibold text-[#3a2a08]">{tube ? "TUBE" : "SS"}</span>
+          <span className="h-3 w-3 rounded-full" style={{ background: look.led, boxShadow: `0 0 8px 2px ${look.led}` }} />
+          <span className="text-[10px] font-semibold">{tube ? "TUBE" : "SS"}</span>
         </button>
         {AMP_KNOBS.map((knob) => (
-          <div key={knob.key} className="[&_span]:!text-[#3a2a08]">
-            <Knob label={knob.label} value={knobs[knob.key]} variant="gold" size={40} display={(knobs[knob.key] * 10).toFixed(1)} onChange={(value) => onKnob(knob.key, value)} />
+          <div key={knob.key} className="[&_span]:!text-[color:inherit]">
+            <Knob label={knob.label} value={knobs[knob.key]} variant={look.knob} size={40} display={(knobs[knob.key] * 10).toFixed(1)} onChange={(value) => onKnob(knob.key, value)} />
           </div>
         ))}
       </div>
@@ -1423,13 +1465,42 @@ function AmpHead({
   );
 }
 
-function Cabinet({ label }: { label: string }) {
+function Cabinet({ label, look }: { label: string; look: AmpLook }) {
   return (
-    <div className="amp-tolex hidden flex-col rounded-xl border-2 border-[#2b2b2b] p-2 shadow-2xl sm:flex">
-      <div className="amp-grille grid flex-1 place-items-center rounded-md border border-black/60">
-        <span className="px-1 text-center font-[family-name:var(--font-script)] text-xl italic text-[#f3e6c4]">{label}</span>
+    <div className="hidden flex-col rounded-xl border-2 border-black p-2 shadow-[4px_4px_0_#000] sm:flex" style={{ background: look.tolex }}>
+      <div className="grid flex-1 place-items-center rounded-md" style={{ background: look.grille, boxShadow: `inset 0 0 0 2px ${look.piping}, inset 0 0 18px rgb(0 0 0 / 0.55)` }}>
+        <span className="rounded bg-black/55 px-1.5 py-0.5 text-center text-xs font-semibold text-white">{label}</span>
       </div>
     </div>
+  );
+}
+
+/** Small picture of an amp in its colourway (combo: panel on top, grille below). */
+function AmpThumb({ look, large = false }: { look: AmpLook; large?: boolean }) {
+  const knobColor =
+    look.knob === "gold" ? "#d9b65c" : look.knob === "chrome" ? "#d1d5db" : look.knob === "cream" ? "#efe3c4" : look.knob === "red" ? "#e11d48" : "#111";
+  return (
+    <span
+      aria-hidden="true"
+      className={`relative block shrink-0 rounded-md border-2 border-black p-[3px] shadow-[2px_2px_0_#000] ${large ? "h-20 w-28" : "h-16 w-24"}`}
+      style={{ background: look.tolex }}
+    >
+      <span className="absolute -top-1.5 left-1/2 h-1.5 w-8 -translate-x-1/2 rounded-t-md border-2 border-b-0 border-black bg-[#222]" />
+      <span className="flex h-[30%] items-center justify-between gap-0.5 rounded-sm px-1" style={{ background: look.plate }}>
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: look.led }} />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className="h-1.5 w-1.5 rounded-full ring-1 ring-black/40" style={{ background: knobColor }} />
+        ))}
+      </span>
+      <span
+        className="mt-[3px] grid h-[62%] place-items-center rounded-sm"
+        style={{ background: look.grille, boxShadow: `inset 0 0 0 1px ${look.piping}` }}
+      >
+        <span className="text-[8px] font-bold tracking-wider" style={{ color: look.logo }}>
+          {look.badge}
+        </span>
+      </span>
+    </span>
   );
 }
 
@@ -1443,13 +1514,17 @@ function AmpGroup({ title, family, active, onPick }: { title: string; family: "g
             key={amp.id}
             type="button"
             onClick={() => onPick(amp.id)}
-            className={`rounded-md border px-3 py-2 text-left ${active === amp.id ? "border-brass bg-brass/10" : "border-line bg-surface-2"}`}
+            aria-pressed={active === amp.id}
+            className={`flex items-center gap-3 rounded-lg border-2 p-2 text-left ${active === amp.id ? "border-brass bg-brass/10" : "border-line bg-surface-2"}`}
           >
-            <span className="flex items-center gap-2 text-sm font-semibold">
-              {amp.name}
-              {amp.tube ? <span className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] text-amber">หลอด</span> : <span className="rounded bg-line px-1.5 py-0.5 text-[10px] text-muted">โซลิด</span>}
+            <AmpThumb look={ampLook(amp.id)} large />
+            <span className="min-w-0">
+              <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                {amp.name}
+                {amp.tube ? <span className="rounded bg-amber/20 px-1.5 py-0.5 text-[10px] text-amber">หลอด</span> : <span className="rounded bg-line px-1.5 py-0.5 text-[10px] text-muted">โซลิด</span>}
+              </span>
+              <span className="mt-1 block text-xs text-muted">{amp.blurb}</span>
             </span>
-            <span className="mt-1 block text-xs text-muted">{amp.blurb}</span>
           </button>
         ))}
       </div>

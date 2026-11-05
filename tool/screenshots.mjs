@@ -62,6 +62,13 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.getByRole("button", { name: /ปรับ ฟัซซ์/ }).click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: `qa/${label}-rig-hendrix.png`, fullPage: label === "desktop" });
+  await page.getByRole("option", { name: /ทวีด/ }).first().click().catch(() => log.push(`[${label}] amp switch missing`));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `qa/${label}-rig-tweed.png`, fullPage: label === "desktop" });
+  await page.getByRole("button", { name: "ตู้แอมป์" }).first().click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `qa/${label}-rig-amps.png`, fullPage: label === "desktop" });
+  await page.getByRole("button", { name: "แอมป์ & เอฟเฟค" }).last().click();
   // Jam: enter a room
   await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: /แจม|ห้องซ้อม/ }).first().click();
   await page.getByRole("button", { name: "สร้างห้องซ้อม" }).click();
