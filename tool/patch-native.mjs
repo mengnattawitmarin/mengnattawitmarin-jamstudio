@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const target = process.argv[2];
 const run = Number(process.env.GITHUB_RUN_NUMBER || "1");
-const version = process.env.APP_VERSION || `1.0.${run}`;
+const version = process.env.APP_VERSION || `2.0.${run}`;
 
 function edit(path, fn) {
   if (!existsSync(path)) {
