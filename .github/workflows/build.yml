@@ -130,6 +130,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
+      - name: Verify APK signing key
+        run: |
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee certs.txt
+          grep -qi "SHA-256 digest: $(keytool -list -v -keystore tool/signing/debug.keystore -storepass android | grep 'SHA256:' | sed 's/.*SHA256: //; s/://g' | tr 'A-Z' 'a-z')" certs.txt
       - name: Collect APK
         run: |
           mkdir -p out

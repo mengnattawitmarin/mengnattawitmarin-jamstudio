@@ -41,9 +41,30 @@ if (target === "android") {
     }
     return out;
   });
-  edit("android/app/build.gradle", (gradle) =>
-    gradle.replace(/versionCode \d+/, `versionCode ${run}`).replace(/versionName "[^"]*"/, `versionName "${version}"`),
-  );
+  edit("android/app/build.gradle", (gradle) => {
+    let out = gradle.replace(/versionCode \d+/, `versionCode ${run}`).replace(/versionName "[^"]*"/, `versionName "${version}"`);
+    // Always sign with the committed key so every CI build can install over
+    // the previous one (otherwise Android reports "package conflicts").
+    if (!out.includes("signingConfigs.kakun")) {
+      out += `
+android {
+    signingConfigs {
+        kakun {
+            storeFile file("../../tool/signing/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.kakun }
+        release { signingConfig signingConfigs.kakun }
+    }
+}
+`;
+    }
+    return out;
+  });
 } else if (target === "ios") {
   edit("ios/App/App/Info.plist", (plist) => {
     const add = [
