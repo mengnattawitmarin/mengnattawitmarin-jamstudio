@@ -7,7 +7,8 @@
 - Repo: https://github.com/mengnattawitmarin/mengnattawitmarin-jamstudio
 - ดาวน์โหลด: หน้า Releases (APK Android, .ipa ไม่เซ็น, zip เว็บ) — สร้างอัตโนมัติทุก push ขึ้น `main`
 - ต้นทาง: โค้ด "เลน" จาก Grok workspace (ดู `docs/GROK_WORKSPACE.md`) → ปรับเป็น Kakunstudio ตามภาพดีไซน์
-- ภาษา UI: ไทย · ธีม: navy + ฟ้า (`src/styles.css` — token ชื่อเดิม: `brass` = สีหลักฟ้า, `olive` = เขียว)
+- ภาษา UI: ไทย · ธีม **rock-pop** (v2): ดำ + ชมพู→ส้ม (`--grad-rock`) + เขียวนีออน, ฟอนต์ Kanit / Bebas Neue / Permanent Marker, การ์ดสไตล์สติกเกอร์ (ขอบหนา + เงาแข็ง) — `src/styles.css` (token ชื่อเดิม: `brass` = สีหลัก, `olive` = เขียวนีออน, `.bg-brass` ถูก override เป็นกราเดียนต์)
+- ชื่อเดิม JamStudio → เปลี่ยนเป็น **Kakunstudio** (2026-11-05). key ใน localStorage/IndexedDB ยังเป็น `jamstudio-*` เพื่อไม่ให้ข้อมูลผู้ใช้หาย; ชื่อ repo ยังเป็น `mengnattawitmarin-jamstudio`
 
 ## สถาปัตยกรรม
 มี 2 build จากโค้ดชุดเดียว:
@@ -18,7 +19,8 @@
 
 ## โครงสร้างโค้ดสำคัญ
 ```
-src/components/studio/studio-app.tsx   shell หลัก: header/แท็บ/bottom nav, เครื่องมือแกะเพลง (Studio, Transport), ประมวลผล WSOLA
+src/components/studio/studio-app.tsx   shell หลัก: เมนู 5 หมวด (หน้าแรก·แจม·โทน·จูน·เพลง) + ตั้งค่าที่ header, SongTabs (แกะเพลง↔คลังเพลง), Studio แบ่งแท็บ คอร์ด/แยกเสียง/วิเคราะห์, Transport, WSOLA
+src/components/studio/home.tsx         หน้าแรก: hero, 4 ไทล์ตามเป้าหมาย, Legend Tones (ส่งพรีเซ็ตไปหน้าแอมป์ผ่าน PENDING_PRESET_KEY), เพลงล่าสุด
 src/components/studio/jam-room.tsx     ห้องซ้อม: lobby, Session (โน้ต P2P, ไลน์อิน, แชท, รายชื่อ+มิเตอร์, เชิญเพื่อน)
 src/components/studio/rig-room.tsx     แอมป์ & เอฟเฟค: pedalboard, AmpHead, ตู้/ไมค์/IR, I/O, fretboard, backing, เมโทรนอม, พรีเซ็ตผู้ใช้
 src/components/studio/tuner.tsx        จูนเนอร์ (หัวกีตาร์, AUTO, เสียงอ้างอิง, trace)
@@ -70,7 +72,8 @@ npm run dev:mobile     # SPA มือถือที่ :5174
 npm run build:mobile && npx cap add android && node tool/patch-native.mjs android && npx cap sync && npx cap open android
 ```
 
-## สถานะล่าสุด (v1.0 — 2026-11-03)
+## สถานะล่าสุด (v2.0 — 2026-11-05)
+- ✅ เปลี่ยนชื่อ Kakunstudio + ธีม rock-pop + จัดเมนูใหม่ ผ่าน typecheck/test/QA screenshots
 - ✅ typecheck + unit tests ผ่านบน CI, build SPA ผ่าน
 - ⚠️ ยังไม่ทดสอบบนมือถือจริง, ห้องซ้อมในแอปมือถือต้องตั้ง `JAMSTUDIO_API_BASE` (URL เว็บเต็มที่ deploy แล้ว)
 - ⚠️ GitHub Pages ต้องเปิดเองครั้งแรก: Settings → Pages → Source: GitHub Actions
@@ -87,4 +90,5 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 ## บันทึกการส่งต่อ (เพิ่มรายการใหม่ไว้บนสุด)
 | วันที่ | ผู้ทำ | ทำอะไร | ค้าง/ข้อควรรู้ |
 |---|---|---|---|
+| 2026-11-05 | Claude (claude.ai) | v2: เปลี่ยนชื่อเป็น Kakunstudio, ธีม rock-pop, โลโก้สายฟ้า, หน้าแรกใหม่, เมนู 5 หมวด, รวมแกะเพลง+คลังเพลงเป็นหมวด "เพลง", Studio แบ่งแท็บ | appId เปลี่ยนเป็น com.mengnattawit.kakunstudio → ต้องลบแอปเก่า (JamStudio) เองถ้าติดตั้งไว้ |
 | 2026-11-03 | Claude (claude.ai) | นำเข้าโค้ด Grok "เลน" → Kakunstudio v1: UI ใหม่ตามดีไซน์, จูนเนอร์, rig แบบภาพ+ตู้/ไมค์/IR+I/O+howl guard, ก้อนใหม่ 4, แอมป์ใหม่ 4, พรีเซ็ตศิลปิน 8, WSOLA, คลังเพลง, แชท, ไดอะแกรมคอร์ด, Capacitor+CI | ยังไม่ทดสอบเครื่องจริง; Pages ต้องเปิดเอง; ห้องซ้อมบนมือถือต้องมี server URL |

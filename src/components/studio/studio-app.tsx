@@ -1015,7 +1015,7 @@ function Studio({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs text-muted">คอร์ดตอนนี้</p>
-              <p className="title-rock text-6xl text-grad">{view.current ? labelOf(view.current) : "—"}</p>
+              <p className="font-display text-6xl leading-none text-grad">{view.current ? labelOf(view.current) : "—"}</p>
               {view.current && degrees ? <p className="text-sm text-muted">{view.current.symbol}</p> : null}
             </div>
             <div className="text-right">

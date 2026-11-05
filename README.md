@@ -1,6 +1,6 @@
-# Kakunstudio 🎸
+# Kakunstudio ⚡🎸
 
-**Play Together, Get Better** — แอปซ้อมดนตรีภาษาไทย ใช้ได้บนเว็บ, Android และ iPhone
+**Play Loud · Play Together** — แอปซ้อมดนตรีภาษาไทย ใช้ได้บนเว็บ, Android และ iPhone
 
 | ห้องซ้อม | แอมป์ & เอฟเฟค | เครื่องมือแกะเพลง | จูนเนอร์ | คลังเพลง |
 |---|---|---|---|---|
