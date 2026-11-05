@@ -1,6 +1,6 @@
 {
-  "appId": "com.mengnattawit.jamstudio",
-  "appName": "JamStudio",
+  "appId": "com.mengnattawit.kakunstudio",
+  "appName": "Kakunstudio",
   "webDir": "dist-mobile",
   "server": {
     "androidScheme": "https",

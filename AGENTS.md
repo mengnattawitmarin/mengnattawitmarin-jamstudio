@@ -1,12 +1,12 @@
-# AGENTS.md — คู่มือส่งต่องาน JamStudio (สำหรับ AI / นักพัฒนา)
+# AGENTS.md — คู่มือส่งต่องาน Kakunstudio (สำหรับ AI / นักพัฒนา)
 
 > ทุกครั้งที่ทำงานเสร็จ ให้อัปเดต "สถานะล่าสุด" และ "บันทึกการส่งต่อ" ด้านล่าง
 
 ## โปรเจกต์คืออะไร
-**JamStudio** — แอปซ้อมดนตรีภาษาไทย: ห้องซ้อมออนไลน์ (P2P), แอมป์ & เอฟเฟกต์กีตาร์/เบส, จูนเนอร์, เครื่องมือแกะเพลง (แยกเสียง/ลดความเร็ว/เปลี่ยนคีย์/คอร์ด), คลังเพลง
+**Kakunstudio** — แอปซ้อมดนตรีภาษาไทย: ห้องซ้อมออนไลน์ (P2P), แอมป์ & เอฟเฟกต์กีตาร์/เบส, จูนเนอร์, เครื่องมือแกะเพลง (แยกเสียง/ลดความเร็ว/เปลี่ยนคีย์/คอร์ด), คลังเพลง
 - Repo: https://github.com/mengnattawitmarin/mengnattawitmarin-jamstudio
 - ดาวน์โหลด: หน้า Releases (APK Android, .ipa ไม่เซ็น, zip เว็บ) — สร้างอัตโนมัติทุก push ขึ้น `main`
-- ต้นทาง: โค้ด "เลน" จาก Grok workspace (ดู `docs/GROK_WORKSPACE.md`) → ปรับเป็น JamStudio ตามภาพดีไซน์
+- ต้นทาง: โค้ด "เลน" จาก Grok workspace (ดู `docs/GROK_WORKSPACE.md`) → ปรับเป็น Kakunstudio ตามภาพดีไซน์
 - ภาษา UI: ไทย · ธีม: navy + ฟ้า (`src/styles.css` — token ชื่อเดิม: `brass` = สีหลักฟ้า, `olive` = เขียว)
 
 ## สถาปัตยกรรม
@@ -37,7 +37,7 @@ src/lib/multiplayer/signaling.server.ts /api/rtc (+CORS)
 src/lib/settings.ts                    zustand persist (localStorage "jamstudio-settings"), apiBase()
 src/lib/library.ts                     IndexedDB "jamstudio"/songs
 mobile/                                entry SPA, manifest, sw.js, ไอคอน PWA
-capacitor.config.json                  appId com.mengnattawit.jamstudio, webDir dist-mobile
+capacitor.config.json                  appId com.mengnattawit.kakunstudio, webDir dist-mobile
 tool/patch-native.mjs                  ใส่ permission ไมค์ / version ลง android/ ios/ ที่สร้างใหม่บน CI
 tool/signing/debug.keystore            คีย์ทดสอบ (CI เท่านั้น ให้ APK ติดตั้งทับกันได้) — ห้ามใช้ขึ้น Play Store
 .github/workflows/build.yml            typecheck → test → build:mobile → Pages / APK / iOS ipa → Release "build-N"
@@ -87,4 +87,4 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 ## บันทึกการส่งต่อ (เพิ่มรายการใหม่ไว้บนสุด)
 | วันที่ | ผู้ทำ | ทำอะไร | ค้าง/ข้อควรรู้ |
 |---|---|---|---|
-| 2026-11-03 | Claude (claude.ai) | นำเข้าโค้ด Grok "เลน" → JamStudio v1: UI ใหม่ตามดีไซน์, จูนเนอร์, rig แบบภาพ+ตู้/ไมค์/IR+I/O+howl guard, ก้อนใหม่ 4, แอมป์ใหม่ 4, พรีเซ็ตศิลปิน 8, WSOLA, คลังเพลง, แชท, ไดอะแกรมคอร์ด, Capacitor+CI | ยังไม่ทดสอบเครื่องจริง; Pages ต้องเปิดเอง; ห้องซ้อมบนมือถือต้องมี server URL |
+| 2026-11-03 | Claude (claude.ai) | นำเข้าโค้ด Grok "เลน" → Kakunstudio v1: UI ใหม่ตามดีไซน์, จูนเนอร์, rig แบบภาพ+ตู้/ไมค์/IR+I/O+howl guard, ก้อนใหม่ 4, แอมป์ใหม่ 4, พรีเซ็ตศิลปิน 8, WSOLA, คลังเพลง, แชท, ไดอะแกรมคอร์ด, Capacitor+CI | ยังไม่ทดสอบเครื่องจริง; Pages ต้องเปิดเอง; ห้องซ้อมบนมือถือต้องมี server URL |

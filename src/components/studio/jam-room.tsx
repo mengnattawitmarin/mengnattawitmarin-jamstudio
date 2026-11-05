@@ -174,8 +174,8 @@ export function JamRoom({
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
       <section className="max-w-xl">
-        <p className="text-sm font-medium text-brass">ห้องซ้อมออนไลน์</p>
-        <h1 className="mt-2 text-4xl font-semibold tracking-tight">แจมกัน โดยเสียงคุณไมดีเลย์</h1>
+        <p className="tape text-sm">ห้องซ้อมออนไลน์</p>
+        <h1 className="title-rock mt-2 text-5xl sm:text-6xl">แจมกัน โดยเสียงคุณไมดีเลย์</h1>
         <p className="mt-4 text-base text-muted">
           เลือกเครื่องบนจอแล้วเล่นได้ทันทีในเครื่องนี้ โน้ตเดินทางตรงถึงเพื่อน ไม่ผ่านเซิร์ฟเวอร์เสียง
           ถ้าเสียบกีตาร์หรือคีย์บอร์ดเข้าไมค์ ให้เปิดไลน์อิน ใช้หูฟัง เสียงจริงจะถูกส่งแบบบัฟเฟอร์สั้นสุด
@@ -659,9 +659,9 @@ function Session({
 
   async function invite() {
     const url = typeof window !== "undefined" && window.location.protocol.startsWith("http") ? `${window.location.origin}${window.location.pathname}?room=${code}` : "";
-    const text = `มาแจมกันใน JamStudio! รหัสห้อง ${code}${url ? `\n${url}` : ""}`;
+    const text = `มาแจมกันใน Kakunstudio! รหัสห้อง ${code}${url ? `\n${url}` : ""}`;
     try {
-      if (navigator.share) await navigator.share({ title: "JamStudio", text });
+      if (navigator.share) await navigator.share({ title: "Kakunstudio", text });
       else {
         await navigator.clipboard.writeText(text);
         setCopied(true);

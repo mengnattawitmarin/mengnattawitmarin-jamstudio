@@ -1,15 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#16295c"/>
-      <stop offset="1" stop-color="#0a1020"/>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff2e88"/>
+      <stop offset="0.55" stop-color="#ff5a4f"/>
+      <stop offset="1" stop-color="#ff7a1a"/>
     </linearGradient>
-    <linearGradient id="pick" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6c9bff"/>
-      <stop offset="1" stop-color="#2a54d6"/>
-    </linearGradient>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="14" r="3" fill="#ffffff" opacity="0.07"/>
+    </pattern>
   </defs>
-  <rect width="1024" height="1024" fill="url(#bg)"/>
-  <path d="M512 170c170 0 300 55 300 55s30 300-102 512c-76 124-198 255-198 255s-122-131-198-255C182 525 212 225 212 225s130-55 300-55Z" fill="url(#pick)"/>
-  <path d="M560 330v280a86 86 0 1 1-54-80V372l140-42v62l-86 30Z" fill="#ffffff"/>
+  <rect width="1024" height="1024" fill="#0b0a0f"/>
+  <rect width="1024" height="1024" fill="url(#dots)"/>
+  <path d="M532 182c160 0 286 52 286 52s28 286-98 488c-72 118-188 242-188 242s-116-124-188-242C218 520 246 234 246 234s126-52 286-52Z" fill="#000" transform="translate(22 22)"/>
+  <path d="M512 160c160 0 286 52 286 52s28 286-98 488c-72 118-188 242-188 242s-116-124-188-242C198 498 226 212 226 212s126-52 286-52Z" fill="url(#g)" stroke="#000" stroke-width="18"/>
+  <path d="M560 270 410 560h104l-46 230 168-312H530l30-208Z" fill="#c6ff3d" stroke="#000" stroke-width="18" stroke-linejoin="round"/>
 </svg>

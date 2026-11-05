@@ -4,24 +4,28 @@
 @source "../mobile";
 
 @theme {
-  /* JamStudio — navy + electric blue. Token names kept from the original
-     codebase: "brass" is the accent, "olive" is the in-tune / live green. */
-  --color-bg: #0a1020;
-  --color-surface: #111a2e;
-  --color-surface-2: #18233b;
-  --color-fg: #e8eefc;
-  --color-muted: #8a98b8;
-  --color-line: #24314f;
-  --color-brass: #3d7bfd;
+  /* Kakunstudio — rock-pop poster: ink black, hot pink → orange, neon lime.
+     Token names kept from the original codebase: "brass" = main accent,
+     "olive" = in-tune / live green. */
+  --color-bg: #0b0a0f;
+  --color-surface: #15131c;
+  --color-surface-2: #201c2b;
+  --color-fg: #fff6ec;
+  --color-muted: #a59cba;
+  --color-line: #322b45;
+  --color-brass: #ff2e88;
   --color-brass-ink: #ffffff;
-  --color-olive: #2fd06b;
-  --color-danger: #e5484d;
-  --color-amber: #f5a524;
-  --font-sans: "IBM Plex Sans Thai", "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
-  --font-script: "Caveat", cursive;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
+  --color-olive: #c6ff3d;
+  --color-danger: #ff4d3d;
+  --color-amber: #ffcc00;
+  --color-orange: #ff7a1a;
+  --color-cyan: #2de2e6;
+  --font-sans: "Kanit", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bebas Neue", "Kanit", sans-serif;
+  --font-script: "Permanent Marker", "Kanit", cursive;
+  --radius-sm: 0.4rem;
+  --radius-md: 0.6rem;
+  --radius-lg: 0.9rem;
 }
 
 @layer base {
@@ -32,8 +36,11 @@
 
   body {
     margin: 0;
-    background-image: radial-gradient(1200px 600px at 10% -10%, #15244a 0%, transparent 60%),
-      radial-gradient(900px 500px at 110% 0%, #101d3d 0%, transparent 55%);
+    background-image:
+      radial-gradient(900px 500px at 0% -10%, rgb(255 46 136 / 0.18) 0%, transparent 60%),
+      radial-gradient(800px 500px at 110% 0%, rgb(255 122 26 / 0.12) 0%, transparent 55%),
+      radial-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px);
+    background-size: auto, auto, 6px 6px;
     background-attachment: fixed;
     min-height: 100%;
     background: var(--color-bg);
@@ -79,12 +86,74 @@
   }
 }
 
-/* ---------- JamStudio components ---------- */
+/* ---------- Kakunstudio components ---------- */
+:root {
+  --grad-rock: linear-gradient(120deg, #ff2e88 0%, #ff5a4f 55%, #ff7a1a 100%);
+  --grad-neon: linear-gradient(120deg, #c6ff3d, #2de2e6);
+}
+
+/* Poster "sticker" panels: thick edge + hard offset shadow. */
 .panel {
-  border: 1px solid var(--color-line);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border: 2px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
   border-radius: var(--radius-lg);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 12px 30px -18px rgb(0 0 0 / 0.8);
+  box-shadow: 4px 4px 0 0 rgb(0 0 0 / 0.65);
+}
+
+/* Accent fills become the pink→orange gradient everywhere. */
+.bg-brass {
+  background-image: var(--grad-rock);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.title-rock {
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.text-grad {
+  background: var(--grad-rock);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tape {
+  display: inline-block;
+  transform: rotate(-2deg);
+  background: var(--color-amber);
+  color: #111;
+  font-weight: 700;
+  padding: 0.1rem 0.6rem;
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 0.6);
+}
+
+.halftone {
+  background-image: radial-gradient(rgb(255 255 255 / 0.12) 1.2px, transparent 1.3px);
+  background-size: 8px 8px;
+}
+
+.tile-rock {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 2px solid #000;
+  box-shadow: 5px 5px 0 0 #000;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.tile-rock:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 7px 7px 0 0 #000;
+}
+.tile-rock:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 0 #000;
 }
 
 .meter-bar {

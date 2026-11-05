@@ -18,7 +18,7 @@ export function SettingsPage() {
       setDevices(await listAudioDevices());
       setPermission("อนุญาตไมค์แล้ว — รายชื่ออุปกรณ์แสดงครบ");
     } catch {
-      setPermission("ไม่ได้รับสิทธิ์ไมค์ เปิดได้ที่การตั้งค่าเครื่อง > แอป > JamStudio > สิทธิ์");
+      setPermission("ไม่ได้รับสิทธิ์ไมค์ เปิดได้ที่การตั้งค่าเครื่อง > แอป > Kakunstudio > สิทธิ์");
     }
   }
 
@@ -26,7 +26,7 @@ export function SettingsPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4">
-      <h1 className="text-2xl font-semibold tracking-tight">ตั้งค่า</h1>
+      <h1 className="title-rock text-5xl">ตั้งค่า</h1>
 
       <section className="panel flex flex-col gap-3 p-4">
         <h2 className="font-semibold">โปรไฟล์</h2>
@@ -115,7 +115,7 @@ export function SettingsPage() {
       <section className="panel flex flex-col gap-3 p-4">
         <h2 className="font-semibold">เซิร์ฟเวอร์ห้องซ้อม</h2>
         <p className="text-xs text-muted">
-          ห้องซ้อมต้องมีเซิร์ฟเวอร์จับคู่ (แค่ส่งข้อมูลนัดเชื่อมต่อ เสียงวิ่งตรงระหว่างเครื่อง) · เว็บใช้เซิร์ฟเวอร์ของตัวเองอัตโนมัติ · แอปมือถือใช้ค่าที่ตั้งตอน build หรือใส่ URL ของเว็บ JamStudio ที่ deploy ไว้ตรงนี้
+          ห้องซ้อมต้องมีเซิร์ฟเวอร์จับคู่ (แค่ส่งข้อมูลนัดเชื่อมต่อ เสียงวิ่งตรงระหว่างเครื่อง) · เว็บใช้เซิร์ฟเวอร์ของตัวเองอัตโนมัติ · แอปมือถือใช้ค่าที่ตั้งตอน build หรือใส่ URL ของเว็บ Kakunstudio ที่ deploy ไว้ตรงนี้
         </p>
         <input
           value={settings.serverUrl}
@@ -130,7 +130,7 @@ export function SettingsPage() {
         <button type="button" onClick={() => settings.set(DEFAULT_SETTINGS)} className="h-10 rounded-lg border border-line px-3 text-sm">
           คืนค่าเริ่มต้น
         </button>
-        <p className="text-xs text-muted">JamStudio v1.0.0 · ข้อมูลทั้งหมดเก็บในเครื่องนี้</p>
+        <p className="text-xs text-muted">Kakunstudio v2.0 · ข้อมูลทั้งหมดเก็บในเครื่องนี้</p>
       </section>
     </main>
   );

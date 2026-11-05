@@ -1,4 +1,4 @@
-# JamStudio 🎸
+# Kakunstudio 🎸
 
 **Play Together, Get Better** — แอปซ้อมดนตรีภาษาไทย ใช้ได้บนเว็บ, Android และ iPhone
 
@@ -7,7 +7,7 @@
 | แจมออนไลน์ P2P, แชท, เชิญเพื่อน, ไลน์อินเครื่องจริง | 14 หัวแอมป์, 18 ก้อนเอฟเฟกต์, ตู้/ไมค์/IR, โทนแบบ Hendrix · John Mayer · B.B. King | แยก 6 เลน, ช้าลงโดยเสียงไม่เพี้ยน, เปลี่ยนคีย์, ตัดเสียงร้อง, วนท่อน, คอร์ด+รูปจับ | 14 เครื่อง 39 จูนนิ่ง, AUTO, เสียงอ้างอิง | เก็บเพลงในเครื่อง ค้นหา รายการโปรด |
 
 ## ดาวน์โหลด
-- **Android**: ไปที่ [Releases](../../releases/latest) → ดาวน์โหลด `JamStudio-N.apk` → ติดตั้ง (อนุญาต "ติดตั้งแอปจากแหล่งที่ไม่รู้จัก")
+- **Android**: ไปที่ [Releases](../../releases/latest) → ดาวน์โหลด `Kakunstudio-N.apk` → ติดตั้ง (อนุญาต "ติดตั้งแอปจากแหล่งที่ไม่รู้จัก")
 - **iPhone**: เปิดเว็บแอป (GitHub Pages ของ repo นี้) ใน Safari → แชร์ → **เพิ่มลงในหน้าจอโฮม**
   หรือเซ็นไฟล์ `.ipa` ใน Releases ด้วย Apple ID ผ่าน Sideloadly / AltStore
 - **เว็บ**: `npm run dev` หรือ deploy ขึ้น Vercel

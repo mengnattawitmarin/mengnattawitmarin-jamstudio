@@ -9,6 +9,7 @@ import {
   Gauge,
   Guitar,
   Headphones,
+  House,
   Library as LibraryIcon,
   ListMusic,
   LogOut,
@@ -50,20 +51,21 @@ import { RigRoom } from "@/components/studio/rig-room";
 import { Tuner } from "@/components/studio/tuner";
 import { SongLibrary } from "@/components/studio/library";
 import { SettingsPage } from "@/components/studio/settings-page";
+import { Home } from "@/components/studio/home";
 import { ChordDiagram } from "@/components/studio/chord-diagram";
 import { stretchBuffer } from "@/lib/audio/run-stretch";
 import { addSong, getSongBlob, updateSong } from "@/lib/library";
 import { useSettings } from "@/lib/settings";
 
-type Desk = "jam" | "rig" | "studio" | "library" | "tuner" | "settings";
+type Desk = "home" | "jam" | "rig" | "studio" | "library" | "tuner" | "settings";
 
-const NAV: { id: Desk; label: string; short: string; icon: typeof Guitar }[] = [
-  { id: "jam", label: "ห้องซ้อม", short: "ห้องซ้อม", icon: Users },
-  { id: "rig", label: "แอมป์ & เอฟเฟค", short: "แอมป์", icon: SlidersHorizontal },
-  { id: "studio", label: "เครื่องมือแกะเพลง", short: "แกะเพลง", icon: AudioLines },
-  { id: "tuner", label: "จูนเนอร์", short: "จูน", icon: Gauge },
-  { id: "library", label: "คลังเพลง", short: "คลัง", icon: LibraryIcon },
-  { id: "settings", label: "ตั้งค่า", short: "ตั้งค่า", icon: SettingsIcon },
+/** Five clear destinations; "เพลง" holds both the song tools and the library. */
+const NAV: { id: Desk; label: string; short: string; icon: typeof Guitar; match: Desk[] }[] = [
+  { id: "home", label: "หน้าแรก", short: "หน้าแรก", icon: House, match: ["home"] },
+  { id: "jam", label: "ห้องซ้อม", short: "แจม", icon: Users, match: ["jam"] },
+  { id: "rig", label: "แอมป์ & เอฟเฟค", short: "โทน", icon: SlidersHorizontal, match: ["rig"] },
+  { id: "tuner", label: "จูนเนอร์", short: "จูน", icon: Gauge, match: ["tuner"] },
+  { id: "studio", label: "เพลง", short: "เพลง", icon: AudioLines, match: ["studio", "library"] },
 ];
 
 const ICONS = {
@@ -103,8 +105,8 @@ export function StudioApp() {
   const [transpose, setTranspose] = useState(0);
   const [degrees, setDegrees] = useState(false);
   const [loop, setLoop] = useState<{ start: number; end: number } | null>(null);
-  const [desk, setDesk] = useState<Desk>("jam");
-  const [visited, setVisited] = useState<Record<string, boolean>>({ jam: true });
+  const [desk, setDesk] = useState<Desk>("home");
+  const [visited, setVisited] = useState<Record<string, boolean>>({});
   const [keepPitch, setKeepPitch] = useState(true);
   const [processing, setProcessing] = useState<number | null>(null);
   const [songId, setSongId] = useState<string | null>(null);
@@ -405,32 +407,34 @@ export function StudioApp() {
     return { tonic, flats, chords, current, capo: capoSuggestion(tonic, analysis.key.mode) };
   }, [analysis, transpose, time]);
 
-  const activeNav = NAV.find((item) => item.id === desk) ?? NAV[0];
+  const activeNav = NAV.find((item) => item.match.includes(desk)) ?? { label: "ตั้งค่า" };
 
   return (
     <div className="min-h-screen text-fg">
       <header className="safe-top sticky top-0 z-30 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-2 sm:px-4">
-          <button type="button" onClick={() => go("jam")} className="flex min-w-0 items-center gap-2 text-left">
+          <button type="button" onClick={() => go("home")} className="flex min-w-0 items-center gap-2 text-left" aria-label="Kakunstudio หน้าแรก">
             <Logo />
             <span className="min-w-0">
-              <span className="block text-lg font-bold leading-tight tracking-tight">JamStudio</span>
-              <span className="block truncate text-[11px] text-muted">Play Together, Get Better</span>
+              <span className="title-rock block text-2xl leading-none">
+                Kakun<span className="text-grad">studio</span>
+              </span>
+              <span className="block truncate text-[10px] uppercase tracking-[0.2em] text-muted">Play loud · Play together</span>
             </span>
           </button>
           <nav className="mx-auto hidden items-center gap-1 lg:flex" aria-label="เมนูหลัก">
             {NAV.map((item) => {
               const Icon = item.icon;
-              const on = desk === item.id;
+              const on = item.match.includes(desk);
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => go(item.id)}
                   aria-current={on ? "page" : undefined}
-                  className={`flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-xs font-medium ${on ? "bg-brass/20 text-fg ring-1 ring-brass" : "text-muted hover:text-fg"}`}
+                  className={`flex items-center gap-2 rounded-lg border-2 px-3.5 py-2 text-sm font-semibold transition ${on ? "border-black bg-brass text-white shadow-[3px_3px_0_#000]" : "border-transparent text-muted hover:text-fg"}`}
                 >
-                  <Icon className="size-5" aria-hidden="true" />
+                  <Icon className="size-4" aria-hidden="true" />
                   {item.label}
                 </button>
               );
@@ -467,7 +471,7 @@ export function StudioApp() {
               type="button"
               onClick={() => go("settings")}
               aria-label="ตั้งค่า"
-              className="grid h-10 w-10 place-items-center panel lg:hidden"
+              className={`grid h-10 w-10 place-items-center rounded-lg border-2 ${desk === "settings" ? "border-black bg-brass text-white" : "border-line bg-surface"}`}
             >
               <SettingsIcon className="size-4" aria-hidden="true" />
             </button>
@@ -502,7 +506,22 @@ export function StudioApp() {
             />
           </div>
         ) : null}
+        {desk === "home" ? (
+          <Home
+            go={go}
+            onDemo={() => {
+              go("studio");
+              void onDemo();
+            }}
+            onUpload={() => {
+              go("studio");
+              fileRef.current?.click();
+            }}
+            onOpenSong={(id) => void openFromLibrary(id)}
+          />
+        ) : null}
         {desk === "tuner" ? <Tuner /> : null}
+        {desk === "studio" || desk === "library" ? <SongTabs desk={desk} onPick={go} hasSong={!!analysis} title={title} /> : null}
         {desk === "library" ? (
           <SongLibrary
             onOpen={(id) => void openFromLibrary(id)}
@@ -619,18 +638,20 @@ export function StudioApp() {
 
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg/95 backdrop-blur lg:hidden" aria-label="เมนูหลัก">
         <div className="mx-auto grid max-w-xl grid-cols-5">
-          {NAV.filter((item) => item.id !== "settings").map((item) => {
+          {NAV.map((item) => {
             const Icon = item.icon;
-            const on = desk === item.id;
+            const on = item.match.includes(desk);
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => go(item.id)}
                 aria-current={on ? "page" : undefined}
-                className={`flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium ${on ? "text-brass" : "text-muted"}`}
+                className={`flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-fg" : "text-muted"}`}
               >
-                <Icon className="size-5" aria-hidden="true" />
+                <span className={`grid h-8 w-12 place-items-center rounded-full transition ${on ? "bg-brass text-white shadow-[2px_2px_0_#000]" : ""}`}>
+                  <Icon className="size-5" aria-hidden="true" />
+                </span>
                 {item.short}
               </button>
             );
@@ -639,8 +660,8 @@ export function StudioApp() {
       </nav>
 
       <footer className="mx-auto hidden max-w-7xl items-center justify-between px-4 py-4 text-xs text-muted lg:flex">
-        <span>JamStudio v1.0.0</span>
-        <span className="italic">“Music is a safe place for everyone”</span>
+        <span className="title-rock text-base">Kakunstudio v2.0</span>
+        <span className="font-[family-name:var(--font-script)] text-sm">Music is a safe place for everyone</span>
         <span>เสียงประมวลผลในเครื่องคุณ</span>
       </footer>
 
@@ -661,12 +682,62 @@ export function StudioApp() {
 
 function Logo() {
   return (
-    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#5b8cff] to-[#2448c8] shadow-lg shadow-brass/30">
-      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-        <path d="M12 2.5c3.6 0 6.5 1.2 6.5 1.2s.6 6.6-2.2 11.2c-1.6 2.7-4.3 5.6-4.3 5.6s-2.7-2.9-4.3-5.6C4.9 10.3 5.5 3.7 5.5 3.7S8.4 2.5 12 2.5Z" fill="#fff" />
-        <path d="M13.2 6.5v6.2a1.9 1.9 0 1 1-1.2-1.8V7.4l3-.9v1.3l-1.8.7Z" fill="#2448c8" />
-      </svg>
-    </span>
+    <svg viewBox="0 0 32 32" className="h-10 w-10 shrink-0 drop-shadow-[2px_2px_0_#000]" aria-hidden="true">
+      <defs>
+        <linearGradient id="kakun-logo" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff2e88" />
+          <stop offset="1" stopColor="#ff7a1a" />
+        </linearGradient>
+      </defs>
+      <path d="M16 2.5c5.4 0 9.6 1.7 9.6 1.7s1 9.6-3.3 16.4C19.9 24.6 16 28.8 16 28.8s-3.9-4.2-6.3-8.2C5.4 13.8 6.4 4.2 6.4 4.2S10.6 2.5 16 2.5Z" fill="url(#kakun-logo)" stroke="#000" strokeWidth="1.2" />
+      <path d="M17.7 6.6 12.6 16.4h3.5l-1.5 7.7 5.6-10.4h-3.9l1.4-7.1Z" fill="#c6ff3d" stroke="#000" strokeWidth=".9" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Sub-navigation inside the "เพลง" section: song tools ↔ library. */
+function SongTabs({
+  desk,
+  onPick,
+  hasSong,
+  title,
+}: {
+  desk: Desk;
+  onPick: (desk: Desk) => void;
+  hasSong: boolean;
+  title: string;
+}) {
+  return (
+    <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-3 pt-4 sm:px-4">
+      <div className="flex rounded-xl border-2 border-line bg-surface p-1" role="tablist" aria-label="เพลง">
+        {(
+          [
+            ["studio", "แกะเพลง", AudioLines],
+            ["library", "คลังเพลง", LibraryIcon],
+          ] as const
+        ).map(([id, label, Icon]) => {
+          const on = desk === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => onPick(id)}
+              className={`inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold ${on ? "bg-brass text-white shadow-[2px_2px_0_#000]" : "text-muted"}`}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {hasSong && title ? (
+        <p className="min-w-0 truncate text-sm text-muted">
+          กำลังเปิด: <span className="font-semibold text-fg">{title}</span>
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -703,8 +774,8 @@ function Landing({
     >
       <div className="grid items-start gap-8 lg:grid-cols-12">
         <section className="lg:col-span-7">
-          <p className="text-sm font-medium text-brass">เครื่องมือแกะเพลง</p>
-          <h1 className="mt-2 max-w-xl text-4xl font-semibold tracking-tight">ลดความเร็ว เปลี่ยนคีย์ ตัดเสียงร้อง แล้วแกะคอร์ด</h1>
+          <p className="tape text-sm">เครื่องมือแกะเพลง</p>
+          <h1 className="title-rock mt-2 max-w-xl text-5xl sm:text-6xl">ลดความเร็ว เปลี่ยนคีย์ ตัดเสียงร้อง แล้วแกะคอร์ด</h1>
           <p className="mt-4 max-w-xl text-base text-muted">
             วางเพลงลงไป ระบบจะแยกเสียงร้อง เบส กลอง และฮาร์โมนี ปรับช้าลงโดยเสียงไม่เพี้ยน ย้ายคีย์ทั้งเพลง
             วนท่อนที่เลือก พร้อมคอร์ดตามเวลาและรูปจับกีตาร์ ทุกอย่างประมวลผลในเครื่อง ไฟล์ไม่ถูกส่งออกไปไหน
@@ -858,6 +929,7 @@ function Studio({
   onMute: (id: StemId) => void;
   onSolo: (id: StemId) => void;
 }) {
+  const [section, setSection] = useState<"chords" | "stems" | "info">("chords");
   const keyName = `${formatPc(view.tonic, view.flats)} ${modeLabel(analysis.key.mode)}`;
   const scale = scalePcs(analysis.key.mode).map((step) => formatPc(view.tonic + step, view.flats));
   const tones =
@@ -882,44 +954,79 @@ function Studio({
     }
   }
 
-  return (
-    <main className="mx-auto grid w-full max-w-7xl gap-4 px-3 py-4 pb-56 sm:px-4 lg:grid-cols-12">
-      <aside className="order-2 flex flex-col gap-4 lg:order-1 lg:col-span-4">
-        <section className="panel p-4">
-          <p className="text-xs text-muted">คีย์</p>
-          <p className="text-3xl font-semibold tracking-tight">{keyName}</p>
-          <p className="text-sm text-muted">
-            {solfege(view.tonic)} · มั่นใจ {Math.round(analysis.key.confidence * 100)}%
-          </p>
-          <div className="mt-4 flex items-end justify-between">
-            <div>
-              <p className="text-xs text-muted">บีพีเอ็ม</p>
-              <p className="text-3xl font-semibold tabular-nums">{analysis.bpm}</p>
-            </div>
-            <p className="text-xs text-muted">จังหวะมั่น {Math.round(analysis.bpmConfidence * 100)}%</p>
-          </div>
-          <ul className="mt-4 flex flex-wrap gap-2">
-            {scale.map((note) => (
-              <li key={note} className="rounded-md bg-surface-2 px-2 py-1 text-xs font-medium">
-                {note}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm text-muted">
-            {view.capo.capo === 0
-              ? `กีตาร์จับรูป ${view.capo.shape} ได้เลย ไม่ต้องคาโป`
-              : `คาโปช่อง ${view.capo.capo} แล้วจับรูป ${view.capo.shape}`}
-          </p>
-        </section>
+  const sectionTabs = [
+    { id: "chords", label: "คอร์ด", icon: ListMusic },
+    { id: "stems", label: "แยกเสียง", icon: Headphones },
+    { id: "info", label: "วิเคราะห์เพลง", icon: Gauge },
+  ] as const;
 
-        <section className="panel p-4">
+  return (
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 py-4 pb-56 sm:px-4">
+      {analysis.truncated ? (
+        <p className="panel px-3 py-2 text-sm text-muted">วิเคราะห์ {Math.round(MAX_SECONDS / 60)} นาทีแรกของไฟล์ ส่วนที่เหลือยังไม่ได้แยก</p>
+      ) : null}
+
+      {/* Always visible: where am I in the song + what chord is it */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Waveform peaks={peaks} time={time} duration={analysis.duration} beats={analysis.beats} loop={loop} onCue={onCue} />
+          <div className="panel p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="title-rock text-xl">คอร์ดตามเวลา</h2>
+              <p className="text-xs text-muted">แตะเพื่อกระโดด</p>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {view.chords.map((chord) => {
+                const active = view.current?.time === chord.time;
+                const width = Math.round(Math.min(168, Math.max(72, chord.duration * 52)));
+                return (
+                  <button
+                    key={`${chord.time}-${chord.symbol}`}
+                    type="button"
+                    onClick={() => onCue(chord.time)}
+                    style={{ width }}
+                    className={`flex h-16 shrink-0 flex-col items-start justify-center rounded-md border-2 px-3 text-left ${active ? "border-black bg-brass text-white shadow-[2px_2px_0_#000]" : "border-transparent bg-surface-2 text-fg"}`}
+                  >
+                    <span className="text-base font-bold">{labelOf(chord)}</span>
+                    <span className={`text-xs tabular-nums ${active ? "text-white/80" : "text-muted"}`}>{formatClock(chord.time)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {analysis.sections.length > 1 ? (
+              <div className="mt-2 flex gap-2 overflow-x-auto">
+                {analysis.sections.map((section) => (
+                  <button
+                    key={`${section.time}-${section.label}`}
+                    type="button"
+                    onClick={() => onCue(section.time)}
+                    className="h-9 shrink-0 rounded-md border border-line bg-surface px-3 text-xs"
+                  >
+                    {section.label}
+                    <span className="ml-2 tabular-nums text-muted">{formatClock(section.time)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <section className="panel flex flex-col p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs text-muted">คอร์ดตอนนี้</p>
-              <p className="text-4xl font-semibold tracking-tight">{view.current ? labelOf(view.current) : "—"}</p>
+              <p className="title-rock text-6xl text-grad">{view.current ? labelOf(view.current) : "—"}</p>
               {view.current && degrees ? <p className="text-sm text-muted">{view.current.symbol}</p> : null}
             </div>
-            {view.current ? (
+            <div className="text-right">
+              <p className="text-xs text-muted">คีย์</p>
+              <p className="font-semibold">{keyName}</p>
+              <p className="mt-1 text-xs text-muted">{analysis.bpm} BPM</p>
+            </div>
+          </div>
+          {view.current ? (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <ChordDiagram root={view.current.root} suffix={view.current.suffix} label={view.current.symbol} active />
               <button
                 type="button"
                 onClick={() =>
@@ -929,204 +1036,196 @@ function Studio({
                       : { start: view.current!.time, end: view.current!.time + view.current!.duration },
                   )
                 }
-                className="h-11 rounded-md border border-line bg-surface-2 px-3 text-sm"
+                className={`h-10 rounded-md px-3 text-sm font-semibold ${loop && view.current && loop.start === view.current.time ? "bg-brass text-white" : "border-2 border-line bg-surface-2"}`}
               >
-                {loop && view.current && loop.start === view.current.time ? "ปิดวน" : "วนคอร์ดนี้"}
-              </button>
-            ) : null}
-          </div>
-          <Piano tones={tones} />
-        </section>
-
-        <section className="panel p-4">
-          <h2 className="text-sm font-semibold">แท็ก</h2>
-          <ul className="mt-3 flex flex-wrap gap-2">
-            {analysis.tags.map((tag) => (
-              <li key={tag.id} title={tag.detail} className="rounded-full border border-line bg-surface-2 px-3 py-1 text-sm">
-                {tag.label}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-col gap-3">
-            <Meter label="พลังงาน" value={analysis.meters.energy} />
-            <Meter label="ความสว่าง" value={analysis.meters.brightness} />
-            <Meter label="ความอบอุ่น" value={analysis.meters.warmth} />
-            <Meter label="จังหวะเต้น" value={analysis.meters.dance} />
-            <Meter label="เสียงกลาง" value={analysis.meters.vocal} />
-          </div>
-        </section>
-      </aside>
-
-      <section className="order-1 flex min-w-0 flex-col gap-4 lg:order-2 lg:col-span-8">
-        {analysis.truncated ? (
-          <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
-            วิเคราะห์ {Math.round(MAX_SECONDS / 60)} นาทีแรกของไฟล์ ส่วนที่เหลือยังไม่ได้แยก
-          </p>
-        ) : null}
-        <Waveform peaks={peaks} time={time} duration={analysis.duration} beats={analysis.beats} loop={loop} onCue={onCue} />
-        <Spectrogram spectro={analysis.spectro} time={time} duration={analysis.duration} onCue={onCue} />
-        <div className="panel p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">คอร์ดตามเวลา</h2>
-            <p className="text-xs text-muted">แตะเพื่อกระโดด</p>
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {view.chords.map((chord) => {
-              const active = view.current?.time === chord.time;
-              const width = Math.round(Math.min(168, Math.max(72, chord.duration * 52)));
-              return (
-                <button
-                  key={`${chord.time}-${chord.symbol}`}
-                  type="button"
-                  onClick={() => onCue(chord.time)}
-                  style={{ width }}
-                  className={`flex h-16 shrink-0 flex-col items-start justify-center rounded-md px-3 text-left ${active ? "bg-brass text-brass-ink" : "bg-surface-2 text-fg"}`}
-                >
-                  <span className="text-base font-semibold">{labelOf(chord)}</span>
-                  <span className={`text-xs tabular-nums ${active ? "text-brass-ink" : "text-muted"}`}>{formatClock(chord.time)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="panel p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">คอร์ดกีตาร์ที่ใช้ในเพลง</h2>
-            <p className="text-xs text-muted">{view.capo.capo > 0 ? `หรือคาโป ${view.capo.capo} จับรูป ${view.capo.shape}` : "ตำแหน่งตามคีย์ที่เลือก"}</p>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {uniqueChords(view.chords).map((chord) => (
-              <ChordDiagram
-                key={chord.symbol}
-                root={chord.root}
-                suffix={chord.suffix}
-                label={chord.symbol}
-                active={view.current?.symbol === chord.symbol}
-              />
-            ))}
-          </div>
-        </div>
-        {analysis.sections.length > 1 ? (
-          <div className="flex gap-2 overflow-x-auto">
-            {analysis.sections.map((section) => (
-              <button
-                key={`${section.time}-${section.label}`}
-                type="button"
-                onClick={() => onCue(section.time)}
-                className="h-11 shrink-0 rounded-md border border-line bg-surface px-3 text-sm"
-              >
-                {section.label}
-                <span className="ml-2 tabular-nums text-muted">{formatClock(section.time)}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          {STEMS.map((stem) => {
-            const data = analysis.stems.find((item) => item.id === stem.id);
-            const Icon = ICONS[stem.id];
-            return (
-              <article key={stem.id} className="panel p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`grid h-10 w-10 place-items-center rounded-md ${stem.tonal ? "bg-brass text-brass-ink" : "bg-olive text-brass-ink"}`}
-                  >
-                    <Icon className="size-4" aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-semibold">
-                      {stem.name}
-                      <span className="ml-2 font-normal text-muted">{stem.en}</span>
-                    </h3>
-                    <p className="text-xs text-muted">{stem.blurb}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Toggle label="มิวต์" pressed={muted[stem.id]} onClick={() => onMute(stem.id)} />
-                    <Toggle label="โซโล" pressed={solo[stem.id]} onClick={() => onSolo(stem.id)} />
-                    <button
-                      type="button"
-                      aria-label={`ดาวน์โหลดเลน${stem.name}`}
-                      onClick={() => {
-                        if (!data) return;
-                        downloadBlob(wavBlob(data.samples, analysis.sampleRate), `${slug(title)}-${stem.en}.wav`);
-                      }}
-                      className="grid h-11 w-11 place-items-center rounded-md border border-line bg-surface-2"
-                    >
-                      <Download className="size-4" aria-hidden="true" />
-                    </button>
-                  </div>
-                </div>
-                {data ? <Spark values={data.envelope} tonal={stem.tonal} /> : null}
-                <label className="mt-2 block text-xs text-muted">
-                  ความดัง
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={volumes[stem.id]}
-                    onChange={(event) => onVolume(stem.id, Number(event.target.value))}
-                    className="w-full"
-                  />
-                </label>
-              </article>
-            );
-          })}
-          <p className="text-xs text-muted">
-            เลนมาจากการแยกฮาร์โมนิกกับจังหวะ และตำแหน่งกลางสนาม ไม่ใช่โมเดลที่รู้ชื่อเครื่องดนตรีทุกชิ้น
-            ถ้ากีตาร์กับเสียงร้องอยู่กลางพร้อมกัน อาจปนในเลนร้อง ปุ่มต้นฉบับคือไฟล์สเตอริโอจริง
-          </p>
-        </div>
-
-        <section className="panel p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-base font-semibold">ชาร์ตคอร์ด</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" aria-label="ลดคีย์" onClick={() => onTranspose(Math.max(-6, transpose - 1))} className="grid h-11 w-11 place-items-center rounded-md border border-line bg-surface-2">
-                <Minus className="size-4" />
-              </button>
-              <span className="min-w-16 text-center text-sm tabular-nums">
-                {transpose > 0 ? `+${transpose}` : transpose}
-              </span>
-              <button type="button" aria-label="เพิ่มคีย์" onClick={() => onTranspose(Math.min(6, transpose + 1))} className="grid h-11 w-11 place-items-center rounded-md border border-line bg-surface-2">
-                <Plus className="size-4" />
-              </button>
-              <button
-                type="button"
-                aria-pressed={degrees}
-                onClick={() => onDegrees(!degrees)}
-                className={`h-11 rounded-md px-3 text-sm ${degrees ? "bg-brass text-brass-ink" : "border border-line bg-surface-2"}`}
-              >
-                เลขโรมัน
-              </button>
-              <button type="button" onClick={() => void copyChart()} className="inline-flex h-11 items-center gap-2 rounded-md border border-line bg-surface-2 px-3 text-sm">
-                <Copy className="size-4" aria-hidden="true" />
-                คัดลอก
+                {loop && view.current && loop.start === view.current.time ? "ปิดวน" : "วนท่อนนี้"}
               </button>
             </div>
+          ) : null}
+          <p className="mt-auto pt-2 text-xs text-muted">
+            {view.capo.capo === 0 ? `กีตาร์จับรูป ${view.capo.shape} ได้เลย` : `คาโปช่อง ${view.capo.capo} แล้วจับรูป ${view.capo.shape}`}
+          </p>
+        </section>
+      </div>
+
+      {/* Organised tools */}
+      <div className="flex gap-2 overflow-x-auto scrollbar-none" role="tablist" aria-label="เครื่องมือ">
+        {sectionTabs.map((tab) => {
+          const Icon = tab.icon;
+          const on = section === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setSection(tab.id)}
+              className={`inline-flex h-11 shrink-0 items-center gap-2 rounded-lg border-2 px-4 text-sm font-semibold ${on ? "border-black bg-brass text-white shadow-[3px_3px_0_#000]" : "border-line bg-surface text-muted"}`}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {section === "chords" ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="panel p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="title-rock text-2xl">รูปจับคอร์ดในเพลง</h2>
+              <p className="text-xs text-muted">กด − / + คีย์ที่แถบล่างเพื่อย้ายคีย์ทั้งเพลง</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {uniqueChords(view.chords).map((chord) => (
+                <ChordDiagram key={chord.symbol} root={chord.root} suffix={chord.suffix} label={chord.symbol} active={view.current?.symbol === chord.symbol} />
+              ))}
+            </div>
+            <div className="mt-4">
+              <p className="mb-2 text-xs text-muted">โน้ตในคอร์ดตอนนี้</p>
+              <Piano tones={tones} />
+            </div>
           </div>
-          {notice ? <p className="mt-2 text-sm text-olive">{notice}</p> : null}
-          <ol className="mt-3 max-h-80 overflow-auto">
-            {view.chords.map((chord) => {
-              const active = view.current?.time === chord.time;
+          <section className="panel p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="title-rock text-2xl">ชาร์ตคอร์ด</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  aria-pressed={degrees}
+                  onClick={() => onDegrees(!degrees)}
+                  className={`h-10 rounded-md px-3 text-sm ${degrees ? "bg-brass text-white" : "border border-line bg-surface-2"}`}
+                >
+                  เลขโรมัน
+                </button>
+                <button type="button" onClick={() => void copyChart()} className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-surface-2 px-3 text-sm">
+                  <Copy className="size-4" aria-hidden="true" />
+                  คัดลอก
+                </button>
+              </div>
+            </div>
+            {notice ? <p className="mt-2 text-sm text-olive">{notice}</p> : null}
+            <ol className="mt-3 max-h-96 overflow-auto">
+              {view.chords.map((chord) => {
+                const active = view.current?.time === chord.time;
+                return (
+                  <li key={`${chord.time}-${chord.symbol}`}>
+                    <button
+                      type="button"
+                      onClick={() => onCue(chord.time)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left ${active ? "bg-surface-2 text-brass" : ""}`}
+                    >
+                      <span className="w-14 shrink-0 tabular-nums text-sm text-muted">{formatClock(chord.time)}</span>
+                      <span className="flex-1 text-base font-semibold">{labelOf(chord)}</span>
+                      <span className="text-xs tabular-nums text-muted">{Math.round(chord.confidence * 100)}%</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        </div>
+      ) : null}
+
+      {section === "stems" ? (
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            {STEMS.map((stem) => {
+              const data = analysis.stems.find((item) => item.id === stem.id);
+              const Icon = ICONS[stem.id];
               return (
-                <li key={`${chord.time}-${chord.symbol}`}>
-                  <button
-                    type="button"
-                    onClick={() => onCue(chord.time)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left ${active ? "bg-surface-2 text-brass" : ""}`}
-                  >
-                    <span className="w-14 shrink-0 tabular-nums text-sm text-muted">{formatClock(chord.time)}</span>
-                    <span className="flex-1 text-base font-semibold">{labelOf(chord)}</span>
-                    <span className="text-xs tabular-nums text-muted">{Math.round(chord.confidence * 100)}%</span>
-                  </button>
-                </li>
+                <article key={stem.id} className="panel p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`grid h-10 w-10 place-items-center rounded-md border-2 border-black ${stem.tonal ? "bg-brass text-white" : "bg-olive text-black"}`}>
+                      <Icon className="size-4" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold">
+                        {stem.name}
+                        <span className="ml-2 font-normal text-muted">{stem.en}</span>
+                      </h3>
+                      <p className="truncate text-xs text-muted">{stem.blurb}</p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Toggle label="มิวต์" pressed={muted[stem.id]} onClick={() => onMute(stem.id)} />
+                      <Toggle label="โซโล" pressed={solo[stem.id]} onClick={() => onSolo(stem.id)} />
+                      <button
+                        type="button"
+                        aria-label={`ดาวน์โหลดเลน${stem.name}`}
+                        onClick={() => {
+                          if (!data) return;
+                          downloadBlob(wavBlob(data.samples, analysis.sampleRate), `${slug(title)}-${stem.en}.wav`);
+                        }}
+                        className="grid h-10 w-10 place-items-center rounded-md border border-line bg-surface-2"
+                      >
+                        <Download className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                  {data ? <Spark values={data.envelope} tonal={stem.tonal} /> : null}
+                  <label className="mt-1 flex items-center gap-2 text-xs text-muted">
+                    ดัง
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={volumes[stem.id]}
+                      onChange={(event) => onVolume(stem.id, Number(event.target.value))}
+                      className="w-full"
+                    />
+                  </label>
+                </article>
               );
             })}
-          </ol>
-        </section>
-      </section>
+          </div>
+          <p className="text-xs text-muted">
+            การแยกเสียงใช้การแยกฮาร์โมนิกกับจังหวะและตำแหน่งกลางสนาม ถ้ากีตาร์กับเสียงร้องอยู่กลางพร้อมกันอาจปนกัน · “ต้นฉบับ” ที่แถบล่างคือไฟล์สเตอริโอจริง
+          </p>
+        </div>
+      ) : null}
+
+      {section === "info" ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <section className="panel p-4">
+            <p className="text-xs text-muted">คีย์</p>
+            <p className="title-rock text-4xl">{keyName}</p>
+            <p className="text-sm text-muted">
+              {solfege(view.tonic)} · มั่นใจ {Math.round(analysis.key.confidence * 100)}%
+            </p>
+            <div className="mt-4 flex items-end justify-between">
+              <div>
+                <p className="text-xs text-muted">บีพีเอ็ม</p>
+                <p className="title-rock text-4xl tabular-nums">{analysis.bpm}</p>
+              </div>
+              <p className="text-xs text-muted">จังหวะมั่น {Math.round(analysis.bpmConfidence * 100)}%</p>
+            </div>
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {scale.map((note) => (
+                <li key={note} className="rounded-md bg-surface-2 px-2 py-1 text-xs font-medium">
+                  {note}
+                </li>
+              ))}
+            </ul>
+            <h3 className="mt-5 text-sm font-semibold">แท็ก</h3>
+            <ul className="mt-2 flex flex-wrap gap-2">
+              {analysis.tags.map((tag) => (
+                <li key={tag.id} title={tag.detail} className="rounded-full border border-line bg-surface-2 px-3 py-1 text-sm">
+                  {tag.label}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-col gap-3">
+              <Meter label="พลังงาน" value={analysis.meters.energy} />
+              <Meter label="ความสว่าง" value={analysis.meters.brightness} />
+              <Meter label="ความอบอุ่น" value={analysis.meters.warmth} />
+              <Meter label="จังหวะเต้น" value={analysis.meters.dance} />
+              <Meter label="เสียงกลาง" value={analysis.meters.vocal} />
+            </div>
+          </section>
+          <Spectrogram spectro={analysis.spectro} time={time} duration={analysis.duration} onCue={onCue} />
+        </div>
+      ) : null}
     </main>
   );
 }

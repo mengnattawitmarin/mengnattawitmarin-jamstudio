@@ -47,7 +47,7 @@ if (target === "android") {
 } else if (target === "ios") {
   edit("ios/App/App/Info.plist", (plist) => {
     const add = [
-      ["NSMicrophoneUsageDescription", "JamStudio ใช้ไมโครโฟนเพื่อจูนสาย รับเสียงกีตาร์เข้าแอมป์จำลอง และส่งเสียงในห้องซ้อม"],
+      ["NSMicrophoneUsageDescription", "Kakunstudio ใช้ไมโครโฟนเพื่อจูนสาย รับเสียงกีตาร์เข้าแอมป์จำลอง และส่งเสียงในห้องซ้อม"],
       ["CFBundleShortVersionString", version],
       ["CFBundleVersion", String(run)],
     ];

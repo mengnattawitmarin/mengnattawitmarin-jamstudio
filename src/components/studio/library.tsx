@@ -38,7 +38,7 @@ export function SongLibrary({
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-4">
       <section className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">คลังเพลง</h1>
+          <h1 className="title-rock text-5xl">คลังเพลง</h1>
           <p className="text-sm text-muted">เพลงที่เคยเปิดถูกเก็บในเครื่องนี้ (ไม่อัปโหลดขึ้นเซิร์ฟเวอร์) · เปิดซ้ำได้ทันที</p>
         </div>
         <div className="flex gap-2">

@@ -1,14 +1,14 @@
 {
-  "name": "JamStudio",
-  "short_name": "JamStudio",
+  "name": "Kakunstudio",
+  "short_name": "Kakunstudio",
   "description": "ห้องซ้อมดนตรีออนไลน์ แอมป์และเอฟเฟกต์กีตาร์ จูนเนอร์ และเครื่องมือแกะเพลง",
   "lang": "th",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0a1020",
-  "theme_color": "#0a1020",
+  "background_color": "#0b0a0f",
+  "theme_color": "#0b0a0f",
   "categories": ["music", "education", "entertainment"],
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },

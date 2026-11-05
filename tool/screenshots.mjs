@@ -23,11 +23,11 @@ const server = createServer(async (req, res) => {
 await mkdir("qa", { recursive: true });
 const browser = await chromium.launch({ args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"] });
 const tabs = [
-  ["jam", "ห้องซ้อม"],
-  ["rig", "แอมป์"],
-  ["studio", "แกะเพลง"],
+  ["home", "หน้าแรก"],
+  ["jam", "แจม|ห้องซ้อม"],
+  ["rig", "โทน|แอมป์"],
   ["tuner", "จูน"],
-  ["library", "คลัง"],
+  ["studio", "เพลง"],
 ];
 const log = [];
 for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", { width: 390, height: 844 }]]) {
@@ -38,25 +38,32 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.waitForTimeout(800);
   for (const [id, text] of tabs) {
     const nav = label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button");
-    await nav.filter({ hasText: text }).first().click();
+    await nav.filter({ hasText: new RegExp(text) }).first().click();
     await page.waitForTimeout(700);
     await page.screenshot({ path: `qa/${label}-${id}.png`, fullPage: label === "desktop" });
   }
+  // Library sub-tab inside "เพลง"
+  await page.getByRole("tab", { name: "คลังเพลง" }).click();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `qa/${label}-library.png`, fullPage: label === "desktop" });
   // Studio with the demo song analysed
-  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: "แกะเพลง" }).first().click();
+  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: /เพลง/ }).first().click();
   await page.getByRole("button", { name: "ลองเพลงตัวอย่าง" }).click();
-  await page.waitForSelector("text=คอร์ดกีตาร์ที่ใช้ในเพลง", { timeout: 60000 }).catch(() => log.push(`[${label}] studio demo did not finish`));
+  await page.waitForSelector("text=รูปจับคอร์ดในเพลง", { timeout: 60000 }).catch(() => log.push(`[${label}] studio demo did not finish`));
   await page.waitForTimeout(500);
   await page.screenshot({ path: `qa/${label}-studio-demo.png`, fullPage: label === "desktop" });
+  await page.getByRole("tab", { name: "แยกเสียง" }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `qa/${label}-studio-stems.png`, fullPage: label === "desktop" });
   // Rig: open an artist preset and focus a pedal
-  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: "แอมป์" }).first().click();
+  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: /โทน|แอมป์/ }).first().click();
   await page.locator("#preset-pick").selectOption("hendrix-haze");
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: /ปรับ ฟัซซ์/ }).click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: `qa/${label}-rig-hendrix.png`, fullPage: label === "desktop" });
   // Jam: enter a room
-  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: "ห้องซ้อม" }).first().click();
+  await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: /แจม|ห้องซ้อม/ }).first().click();
   await page.getByRole("button", { name: "สร้างห้องซ้อม" }).click();
   await page.waitForTimeout(1200);
   await page.locator("#chat-input").fill("เริ่มกันเลย!");
@@ -64,8 +71,7 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.waitForTimeout(300);
   await page.screenshot({ path: `qa/${label}-jam-room.png`, fullPage: label === "desktop" });
   // Settings
-  if (label === "desktop") await page.locator("header nav button").filter({ hasText: "ตั้งค่า" }).click();
-  else await page.getByRole("button", { name: "ตั้งค่า" }).first().click();
+  await page.getByRole("button", { name: "ตั้งค่า" }).first().click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: `qa/${label}-settings.png`, fullPage: label === "desktop" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

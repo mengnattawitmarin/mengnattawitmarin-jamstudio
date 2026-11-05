@@ -1,4 +1,4 @@
-name: Build JamStudio (Web · Android · iOS)
+name: Build Kakunstudio (Web · Android · iOS)
 
 on:
   push:
@@ -120,7 +120,7 @@ jobs:
         run: |
           npx cap add android
           node tool/patch-native.mjs android
-          npx capacitor-assets generate --android --iconBackgroundColor '#0a1020' --iconBackgroundColorDark '#0a1020' --splashBackgroundColor '#0a1020' --splashBackgroundColorDark '#0a1020' || echo "asset generation skipped"
+          npx capacitor-assets generate --android --iconBackgroundColor '#0b0a0f' --iconBackgroundColorDark '#0b0a0f' --splashBackgroundColor '#0b0a0f' --splashBackgroundColorDark '#0b0a0f' || echo "asset generation skipped"
           npx cap sync android
       - name: Build APK
         run: |
@@ -133,7 +133,7 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk out/JamStudio-${{ github.run_number }}.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/Kakunstudio-${{ github.run_number }}.apk
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
@@ -161,7 +161,7 @@ jobs:
         run: |
           npx cap add ios
           node tool/patch-native.mjs ios
-          npx capacitor-assets generate --ios --iconBackgroundColor '#0a1020' --splashBackgroundColor '#0a1020' || echo "asset generation skipped"
+          npx capacitor-assets generate --ios --iconBackgroundColor '#0b0a0f' --splashBackgroundColor '#0b0a0f' || echo "asset generation skipped"
           npx cap sync ios
       - name: Build unsigned archive
         run: |
@@ -174,7 +174,7 @@ jobs:
         run: |
           mkdir -p out Payload
           cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" Payload/
-          zip -qr out/JamStudio-${{ github.run_number }}-unsigned.ipa Payload
+          zip -qr out/Kakunstudio-${{ github.run_number }}-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
@@ -190,18 +190,18 @@ jobs:
         with:
           path: artifacts
       - name: Zip web bundle
-        run: cd artifacts && zip -qr JamStudio-web-${{ github.run_number }}.zip dist-mobile
+        run: cd artifacts && zip -qr Kakunstudio-web-${{ github.run_number }}.zip dist-mobile
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          FILES=$(ls artifacts/android-apk/*.apk artifacts/JamStudio-web-*.zip artifacts/ios-ipa/*.ipa 2>/dev/null || true)
+          FILES=$(ls artifacts/android-apk/*.apk artifacts/Kakunstudio-web-*.zip artifacts/ios-ipa/*.ipa 2>/dev/null || true)
           gh release create "build-${{ github.run_number }}" $FILES \
             --repo "${{ github.repository }}" \
-            --title "JamStudio build ${{ github.run_number }}" \
+            --title "Kakunstudio build ${{ github.run_number }}" \
             --notes "อัตโนมัติจาก commit ${{ github.sha }}
 
           - **Android**: ดาวน์โหลด \`.apk\` แล้วติดตั้ง (อนุญาต 'ติดตั้งแอปที่ไม่รู้จัก')
           - **iPhone**: ใช้เว็บแอป (GitHub Pages) → แชร์ → เพิ่มลงในหน้าจอโฮม หรือเซ็น \`.ipa\` ด้วย Apple ID ผ่าน Sideloadly/AltStore
-          - **Web**: \`JamStudio-web.zip\` เป็นไฟล์ static วางบนโฮสต์ใดก็ได้" \
+          - **Web**: \`Kakunstudio-web.zip\` เป็นไฟล์ static วางบนโฮสต์ใดก็ได้" \
             --latest

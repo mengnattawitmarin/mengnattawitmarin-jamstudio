@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Knob } from "@/components/ui/knob";
 import { useSettings } from "@/lib/settings";
+import { PENDING_PRESET_KEY } from "@/components/studio/home";
 import { renderDemo } from "@/lib/audio/demo-track";
 import { formatClock } from "@/lib/audio/theory";
 import {
@@ -471,6 +472,23 @@ export function RigRoom({ pullStudio, active = true }: { pullStudio: () => Pull 
   useEffect(() => {
     if (view === "io") void refreshDevices();
   }, [view]);
+
+  // A preset picked on the Home screen ("Legend Tones") is applied on arrival.
+  useEffect(() => {
+    if (!active) return;
+    let pending: string | null = null;
+    try {
+      pending = localStorage.getItem(PENDING_PRESET_KEY);
+      if (pending) localStorage.removeItem(PENDING_PRESET_KEY);
+    } catch {
+      pending = null;
+    }
+    if (pending && engineRef.current) {
+      usePreset(pending);
+      setView("rig");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   const pitch = describePitch(reading.hz, rig.a4);
   const inTune = pitch != null && Math.abs(pitch.cents) <= 6;
