@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { MessageSquare, Send, Share2, UserPlus } from "lucide-react";
 import { useSettings, getSettings } from "@/lib/settings";
+import { parseAvatar, resolveAvatar, type AvatarChoice } from "@/lib/avatars";
+import { AvatarPicker } from "@/components/studio/avatar-picker";
+import { StageRoom, type StageMember } from "@/components/studio/stage-room";
 import {
   AudioLines,
   Copy,
@@ -77,7 +80,7 @@ type Wire =
   | { k: "on"; i: InstrumentId; n: number; v: number }
   | { k: "off"; i: InstrumentId; n: number }
   | { k: "held"; i: InstrumentId; n: number[] }
-  | { k: "who"; name: string; i: InstrumentId };
+  | { k: "who"; name: string; i: InstrumentId; a: AvatarChoice | null };
 
 function parseWire(data: unknown): Wire | null {
   if (!data || typeof data !== "object") return null;
@@ -90,7 +93,7 @@ function parseWire(data: unknown): Wire | null {
   if (msg.k === "held" && Array.isArray(msg.n)) {
     return { k: "held", i: msg.i, n: msg.n.filter((n) => typeof n === "number") };
   }
-  if (msg.k === "who" && typeof msg.name === "string") return { k: "who", name: msg.name.slice(0, 32), i: msg.i };
+  if (msg.k === "who" && typeof msg.name === "string") return { k: "who", name: msg.name.slice(0, 32), i: msg.i, a: parseAvatar(msg.a) };
   return null;
 }
 
@@ -130,6 +133,7 @@ export function JamRoom({
 }) {
   const savedName = useSettings((state) => state.name);
   const setSettings = useSettings((state) => state.set);
+  const avatarChoice = useSettings((state) => state.avatar);
   const [name, setName] = useState(savedName);
   const [draft, setDraft] = useState("");
   const [room, setRoom] = useState<string | null>(null);
@@ -229,6 +233,11 @@ export function JamRoom({
           </button>
         </form>
       </section>
+      <section className="panel p-4">
+        <h2 className="title-rock text-3xl">ตัวละครของคุณ</h2>
+        <p className="mb-3 text-sm text-muted">เลือกตัวละคร สีชุด และเครื่องดนตรี แล้วไปยืนในห้องซ้อม 3D / AR กับเพื่อน</p>
+        <AvatarPicker value={avatarChoice} onChange={(next) => setSettings({ avatar: next })} />
+      </section>
       <ul className="grid gap-3 sm:grid-cols-3">
         <li className="panel p-4 text-sm">
           <Piano className="size-5 text-brass" aria-hidden="true" />
@@ -285,6 +294,11 @@ function Session({
   const [pressed, setPressed] = useState<Record<number, Who>>({});
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [roles, setRoles] = useState<Record<string, InstrumentId>>({});
+  const [avatars, setAvatars] = useState<Record<string, AvatarChoice>>({});
+  const [bubbles, setBubbles] = useState<Record<string, string>>({});
+  const [picking, setPicking] = useState(false);
+  const myAvatar = useSettings((state) => state.avatar);
+  const setSettings = useSettings((state) => state.set);
   const [heard, setHeard] = useState<Record<string, number>>({});
   const [joined, setJoined] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
@@ -360,12 +374,15 @@ function Session({
             },
           ]);
           setUnread((n) => n + 1);
+          showBubble(from, text);
           return;
         }
         const msg = parseWire(data);
         if (!msg) return;
         if (msg.k === "who") {
           setRoles((prev) => ({ ...prev, [from]: msg.i }));
+          const avatar = msg.a;
+          if (avatar) setAvatars((prev) => ({ ...prev, [from]: avatar }));
           return;
         }
         flash(from);
@@ -457,8 +474,8 @@ function Session({
     .join(",");
 
   useEffect(() => {
-    p2pRef.current?.send({ k: "who", name, i: instrument });
-  }, [instrument, name, linked]);
+    p2pRef.current?.send({ k: "who", name, i: instrument, a: myAvatar });
+  }, [instrument, name, linked, myAvatar]);
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
@@ -648,11 +665,24 @@ function Session({
     chatEnd.current?.scrollIntoView({ block: "nearest" });
   }, [chat.length]);
 
+  function showBubble(id: string, text: string) {
+    setBubbles((prev) => ({ ...prev, [id]: text }));
+    window.setTimeout(() => {
+      setBubbles((prev) => {
+        if (prev[id] !== text) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }, 5000);
+  }
+
   function sendChat() {
     const text = chatDraft.trim().slice(0, 500);
     if (!text) return;
     p2pRef.current?.send({ k: "chat", text, name });
     setChat((prev) => [...prev.slice(-199), { id: `me-${Date.now()}`, from: selfId, name, text, at: Date.now(), mine: true }]);
+    showBubble(selfId, text);
     setChatDraft("");
     setUnread(0);
   }
@@ -775,6 +805,39 @@ function Session({
       </aside>
 
       <div className="flex min-w-0 flex-col gap-4">
+      <StageRoom
+        onEditAvatar={() => setPicking((v) => !v)}
+        members={[
+          {
+            id: selfId,
+            name,
+            me: true,
+            look: resolveAvatar(myAvatar),
+            level: liveOn ? level : Object.values(pressed).includes("me") ? 0.7 : 0,
+            bubble: bubbles[selfId],
+          },
+          ...peers.map(
+            (peer): StageMember => ({
+              id: peer.id,
+              name: peer.name || "เพื่อน",
+              look: resolveAvatar(avatars[peer.id] ?? { char: "mint" }),
+              level: (heard[peer.id] ?? 0) > 0 ? 0.8 : 0,
+              bubble: bubbles[peer.id],
+            }),
+          ),
+        ]}
+      />
+      {picking ? (
+        <section className="panel p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="title-rock text-2xl">เปลี่ยนตัวละคร</h2>
+            <button type="button" onClick={() => setPicking(false)} className="h-9 rounded-lg bg-brass px-3 text-sm font-semibold text-white">
+              เสร็จ
+            </button>
+          </div>
+          <AvatarPicker value={myAvatar} onChange={(next) => setSettings({ avatar: next })} />
+        </section>
+      ) : null}
       <section className="flex flex-wrap items-center gap-2">
         <p className="rounded-md bg-brass px-3 py-2 text-lg font-semibold tracking-widest text-brass-ink tabular-nums">{code}</p>
         <button

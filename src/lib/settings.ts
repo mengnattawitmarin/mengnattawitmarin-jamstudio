@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { InputChannel, LatencyMode } from "@/lib/audio/rig";
+import { DEFAULT_AVATAR, type AvatarChoice } from "@/lib/avatars";
 
 export type Settings = {
   /** Display name in jam rooms. */
@@ -19,6 +20,8 @@ export type Settings = {
   serverUrl: string;
   /** Mute the rig automatically when acoustic feedback is detected. */
   howlGuard: boolean;
+  /** Character shown in the 3D / AR rehearsal room. */
+  avatar: AvatarChoice;
 };
 
 type Store = Settings & { set: (patch: Partial<Settings>) => void; reset: () => void };
@@ -34,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   inputTrimDb: 0,
   serverUrl: "",
   howlGuard: true,
+  avatar: DEFAULT_AVATAR,
 };
 
 export const useSettings = create<Store>()(

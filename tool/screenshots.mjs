@@ -80,6 +80,10 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.getByRole("button", { name: "ส่ง" }).click();
   await page.waitForTimeout(300);
   await page.screenshot({ path: `qa/${label}-jam-room.png`, fullPage: label === "desktop" });
+  await page.getByRole("tab", { name: "AR" }).click().catch((e) => log.push(`[${label}] AR tab: ${String(e).slice(0, 120)}`));
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `qa/${label}-jam-ar.png`, fullPage: label === "desktop" });
+  await page.getByRole("tab", { name: "3D" }).click().catch(() => undefined);
   // Settings
   await page.getByRole("button", { name: "ตั้งค่า" }).first().click();
   await page.waitForTimeout(400);

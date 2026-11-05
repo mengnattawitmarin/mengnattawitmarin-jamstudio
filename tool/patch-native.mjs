@@ -28,10 +28,17 @@ if (target === "android") {
       "android.permission.RECORD_AUDIO",
       "android.permission.MODIFY_AUDIO_SETTINGS",
       "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.CAMERA",
     ];
     let out = xml;
     for (const perm of perms) {
       if (!out.includes(`"${perm}"`)) out = out.replace("</manifest>", `    <uses-permission android:name="${perm}" />\n</manifest>`);
+    }
+    if (!out.includes("android.hardware.camera")) {
+      out = out.replace(
+        "</manifest>",
+        '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n</manifest>',
+      );
     }
     if (!out.includes("android.hardware.microphone")) {
       out = out.replace(
@@ -69,6 +76,7 @@ android {
   edit("ios/App/App/Info.plist", (plist) => {
     const add = [
       ["NSMicrophoneUsageDescription", "Kakunstudio ใช้ไมโครโฟนเพื่อจูนสาย รับเสียงกีตาร์เข้าแอมป์จำลอง และส่งเสียงในห้องซ้อม"],
+      ["NSCameraUsageDescription", "Kakunstudio ใช้กล้องสำหรับโหมดห้องซ้อม AR เพื่อวางวงดนตรีลงในห้องจริงของคุณ"],
       ["CFBundleShortVersionString", version],
       ["CFBundleVersion", String(run)],
     ];

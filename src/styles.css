@@ -227,3 +227,17 @@
     transform: none;
   }
 }
+
+.avatar-bounce {
+  animation: avatarBounce 0.42s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+@keyframes avatarBounce {
+  from {
+    transform: translateY(0) scaleY(1);
+  }
+  to {
+    transform: translateY(-4px) scaleY(1.015);
+  }
+}
