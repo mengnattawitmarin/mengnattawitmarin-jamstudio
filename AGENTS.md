@@ -20,6 +20,10 @@
 ## โครงสร้างโค้ดสำคัญ
 ```
 src/components/studio/studio-app.tsx   shell หลัก: เมนู 5 หมวด (หน้าแรก·แจม·โทน·จูน·เพลง) + ตั้งค่าที่ header, SongTabs (แกะเพลง↔คลังเพลง), Studio แบ่งแท็บ คอร์ด/แยกเสียง/วิเคราะห์, Transport, WSOLA
+src/components/studio/connect-page.tsx เชื่อมต่อ & มิกเซอร์ (แท็บย่อยในหมวด "โทน"): ช่องอินพุตสูงสุด 8 (InputStrip), MIDI เข้า/ออก + CC learn, เลือกเอาต์พุต, อัดเสียง+แชร์
+src/lib/audio/shared-engine.ts         RigEngine ตัวเดียวทั้งแอป (sharedRig) — แอมป์ มิกเซอร์ MIDI อัดเสียง ใช้ AudioContext เดียว
+src/lib/audio/mixer.ts                 InputStrip: device→split→HPF→comp→EQ3→trim→meter→pan→fader→(amp|direct), preset ตามชนิดเครื่องดนตรี
+src/lib/audio/midi.ts                  parseMidi, gmDrumPad, noteOn/OffBytes (มี test)
 src/components/studio/home.tsx         หน้าแรก: hero, 4 ไทล์ตามเป้าหมาย, Legend Tones (ส่งพรีเซ็ตไปหน้าแอมป์ผ่าน PENDING_PRESET_KEY), เพลงล่าสุด
 src/components/studio/jam-room.tsx     ห้องซ้อม: lobby, Session (โน้ต P2P, ไลน์อิน, แชท, รายชื่อ+มิเตอร์, เชิญเพื่อน)
 src/components/studio/rig-room.tsx     แอมป์ & เอฟเฟค: pedalboard, AmpHead, ตู้/ไมค์/IR, I/O, fretboard, backing, เมโทรนอม, พรีเซ็ตผู้ใช้
@@ -91,6 +95,7 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 ## บันทึกการส่งต่อ (เพิ่มรายการใหม่ไว้บนสุด)
 | วันที่ | ผู้ทำ | ทำอะไร | ค้าง/ข้อควรรู้ |
 |---|---|---|---|
+| 2026-11-06 | Claude (claude.ai) | เชื่อมต่อ & มิกเซอร์: ช่องอินพุตกีตาร์/เบส/คีย์บอร์ด/กลองไฟฟ้า/ไมค์/โปร่ง/ไลน์ ผ่านแอมป์หรือ DI, EQ/คอมเพรส/แพน/M/S/เฟดเดอร์, MIDI (Web MIDI) เล่นเสียงในแอป + ช่อง 10 กลอง GM + ส่ง MIDI ออก/thru + CC learn, RigEngine มี outBus/mixIn/อัดเสียง (MediaRecorder), JamSynth รับ ctx ร่วม | Web MIDI ไม่มีบน iOS; มือถือส่วนใหญ่เปิดอินพุตได้ทีละอุปกรณ์ |
 | 2026-11-05 | Claude (claude.ai) | ห้องซ้อม 3D/AR ในแอป: เลือกตัวละคร 6 ตัว/สีชุด/เครื่องดนตรี (ที่ lobby และในห้อง), ฉากสตูดิโอนีออนตามภาพอ้างอิง, โหมด AR กล้อง, สิทธิ์ CAMERA/NSCameraUsageDescription | AR ยังไม่ใช่การจับพื้นจริง (overlay บนวิดีโอ) |
 | 2026-11-05 | Claude (claude.ai) | แก้ติดตั้ง APK ไม่ได้ ("แพ็กเกจขัดแย้ง"): บังคับเซ็นด้วย tool/signing/debug.keystore ผ่าน patch-native + ตรวจ SHA-256 ใน CI (bb6402…d453) | ผู้ใช้ต้องลบแอปเก่าครั้งเดียว หลังจากนั้นอัปเดตทับได้ |
 | 2026-11-05 | Claude (claude.ai) | v2: เปลี่ยนชื่อเป็น Kakunstudio, ธีม rock-pop, โลโก้สายฟ้า, หน้าแรกใหม่, เมนู 5 หมวด, รวมแกะเพลง+คลังเพลงเป็นหมวด "เพลง", Studio แบ่งแท็บ | appId เปลี่ยนเป็น com.mengnattawit.kakunstudio → ต้องลบแอปเก่า (JamStudio) เองถ้าติดตั้งไว้ |
