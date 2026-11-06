@@ -1,0 +1,6 @@
+[desktop] amp options: 10
+[desktop] console: Failed to load resource: the server responded with a status of 404 (Not Found)
+[desktop] console: Failed to load resource: the server responded with a status of 404 (Not Found)
+[phone] amp options: 10
+[phone] console: Failed to load resource: the server responded with a status of 404 (Not Found)
+[phone] console: Failed to load resource: the server responded with a status of 404 (Not Found)
