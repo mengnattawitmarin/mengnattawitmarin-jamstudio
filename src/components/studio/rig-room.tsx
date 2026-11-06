@@ -23,6 +23,7 @@ import { Knob } from "@/components/ui/knob";
 import { useSettings } from "@/lib/settings";
 import { PENDING_PRESET_KEY } from "@/components/studio/home";
 import { ampLook, type AmpLook } from "@/lib/audio/amp-looks";
+import { sharedRig } from "@/lib/audio/shared-engine";
 import { renderDemo } from "@/lib/audio/demo-track";
 import { formatClock } from "@/lib/audio/theory";
 import {
@@ -157,7 +158,7 @@ export function RigRoom({ pullStudio, active = true }: { pullStudio: () => Pull 
     setRig(initial);
     if (initial.source === "bass") setTuneAs("bass");
     const prefs = useSettings.getState();
-    const engine = new RigEngine({ latency: prefs.latency });
+    const engine = sharedRig(prefs.latency);
     engineRef.current = engine;
     engine.setCab(initial.cab, initial.mic, initial.air);
     engine.setInputTrim(prefs.inputTrimDb);
@@ -206,7 +207,8 @@ export function RigRoom({ pullStudio, active = true }: { pullStudio: () => Pull 
       window.clearInterval(poll);
       window.removeEventListener("keydown", onKey);
       engine.onBeat = null;
-      engine.close();
+      engine.onFeedback = null;
+      engine.releaseAll();
       engineRef.current = null;
     };
   }, []);

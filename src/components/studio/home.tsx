@@ -4,7 +4,7 @@ import { RIG_PRESETS } from "@/lib/audio/rig";
 import { listSongs, type SongMeta } from "@/lib/library";
 import { useSettings } from "@/lib/settings";
 
-export type HomeTarget = "jam" | "rig" | "tuner" | "studio" | "library";
+export type HomeTarget = "jam" | "rig" | "connect" | "tuner" | "studio" | "library";
 
 /** Key used to hand a preset from Home to the amp screen. */
 export const PENDING_PRESET_KEY = "kakun-pending-preset";
@@ -105,9 +105,9 @@ export function Home({
             <Users className="size-5" aria-hidden="true" />
             เริ่มแจมเลย
           </button>
-          <button type="button" onClick={() => go("rig")} className="inline-flex h-12 items-center gap-2 rounded-lg border-2 border-line bg-surface-2 px-5 font-semibold">
+          <button type="button" onClick={() => go("connect")} className="inline-flex h-12 items-center gap-2 rounded-lg border-2 border-line bg-surface-2 px-5 font-semibold">
             <Zap className="size-5 text-[var(--color-amber)]" aria-hidden="true" />
-            เสียบกีตาร์
+            ต่อเครื่องดนตรี
           </button>
         </div>
       </section>

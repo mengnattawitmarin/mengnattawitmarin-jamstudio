@@ -50,9 +50,12 @@ export class JamSynth {
   private metroTimer: ReturnType<typeof setInterval> | null = null;
   private metroNext = 0;
   private closed = false;
+  private readonly ownsCtx: boolean;
 
-  constructor() {
-    this.ctx = new AudioContext({ latencyHint: "interactive" });
+  /** Pass a shared context + destination to play inside another engine (e.g. the rig mixer). */
+  constructor(opts: { ctx?: AudioContext; destination?: AudioNode } = {}) {
+    this.ownsCtx = !opts.ctx;
+    this.ctx = opts.ctx ?? new AudioContext({ latencyHint: "interactive" });
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     this.comp = this.ctx.createDynamicsCompressor();
@@ -62,7 +65,7 @@ export class JamSynth {
     this.comp.attack.value = 0.003;
     this.comp.release.value = 0.12;
     this.master.connect(this.comp);
-    this.comp.connect(this.ctx.destination);
+    this.comp.connect(opts.destination ?? this.ctx.destination);
   }
 
   resume(): Promise<void> {
@@ -154,7 +157,8 @@ export class JamSynth {
     for (const stop of this.voices.values()) stop(0);
     this.voices.clear();
     this.master.disconnect();
-    void this.ctx.close();
+    this.comp.disconnect();
+    if (this.ownsCtx) void this.ctx.close();
   }
 
   private burst(length: number): AudioBufferSourceNode {

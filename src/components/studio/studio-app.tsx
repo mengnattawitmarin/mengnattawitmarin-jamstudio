@@ -8,6 +8,7 @@ import {
   Drum,
   Gauge,
   Guitar,
+  Cable,
   Headphones,
   House,
   Library as LibraryIcon,
@@ -52,18 +53,19 @@ import { Tuner } from "@/components/studio/tuner";
 import { SongLibrary } from "@/components/studio/library";
 import { SettingsPage } from "@/components/studio/settings-page";
 import { Home } from "@/components/studio/home";
+import { ConnectPage } from "@/components/studio/connect-page";
 import { ChordDiagram } from "@/components/studio/chord-diagram";
 import { stretchBuffer } from "@/lib/audio/run-stretch";
 import { addSong, getSongBlob, updateSong } from "@/lib/library";
 import { useSettings } from "@/lib/settings";
 
-type Desk = "home" | "jam" | "rig" | "studio" | "library" | "tuner" | "settings";
+type Desk = "home" | "jam" | "rig" | "connect" | "studio" | "library" | "tuner" | "settings";
 
 /** Five clear destinations; "เพลง" holds both the song tools and the library. */
 const NAV: { id: Desk; label: string; short: string; icon: typeof Guitar; match: Desk[] }[] = [
   { id: "home", label: "หน้าแรก", short: "หน้าแรก", icon: House, match: ["home"] },
   { id: "jam", label: "ห้องซ้อม", short: "แจม", icon: Users, match: ["jam"] },
-  { id: "rig", label: "แอมป์ & เอฟเฟค", short: "โทน", icon: SlidersHorizontal, match: ["rig"] },
+  { id: "rig", label: "แอมป์ & เชื่อมต่อ", short: "โทน", icon: SlidersHorizontal, match: ["rig", "connect"] },
   { id: "tuner", label: "จูนเนอร์", short: "จูน", icon: Gauge, match: ["tuner"] },
   { id: "studio", label: "เพลง", short: "เพลง", icon: AudioLines, match: ["studio", "library"] },
 ];
@@ -123,7 +125,8 @@ export function StudioApp() {
       playerRef.current?.pause();
       setPlaying(false);
     }
-    setVisited((prev) => (prev[next] ? prev : { ...prev, [next]: true }));
+    // The connect page routes "through the amp", so mount the amp screen too (applies the saved rig).
+    setVisited((prev) => (prev[next] && (next !== "connect" || prev.rig) ? prev : { ...prev, [next]: true, ...(next === "connect" ? { rig: true } : {}) }));
     setDesk(next);
   }
 
@@ -494,6 +497,12 @@ export function StudioApp() {
             />
           </div>
         ) : null}
+        {desk === "rig" || desk === "connect" ? <ToneTabs desk={desk} onPick={go} /> : null}
+        {visited.connect ? (
+          <div hidden={desk !== "connect"}>
+            <ConnectPage active={desk === "connect"} />
+          </div>
+        ) : null}
         {visited.rig ? (
           <div hidden={desk !== "rig"}>
             <RigRoom
@@ -692,6 +701,37 @@ function Logo() {
       <path d="M16 2.5c5.4 0 9.6 1.7 9.6 1.7s1 9.6-3.3 16.4C19.9 24.6 16 28.8 16 28.8s-3.9-4.2-6.3-8.2C5.4 13.8 6.4 4.2 6.4 4.2S10.6 2.5 16 2.5Z" fill="url(#kakun-logo)" stroke="#000" strokeWidth="1.2" />
       <path d="M17.7 6.6 12.6 16.4h3.5l-1.5 7.7 5.6-10.4h-3.9l1.4-7.1Z" fill="#c6ff3d" stroke="#000" strokeWidth=".9" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** Sub-navigation inside the "โทน" section: amp & FX ↔ connect & mixer. */
+function ToneTabs({ desk, onPick }: { desk: Desk; onPick: (desk: Desk) => void }) {
+  return (
+    <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-3 pt-4 sm:px-4">
+      <div className="flex rounded-xl border-2 border-line bg-surface p-1" role="tablist" aria-label="โทน">
+        {(
+          [
+            ["rig", "แอมป์ & เอฟเฟค", SlidersHorizontal],
+            ["connect", "เชื่อมต่อ & มิกเซอร์", Cable],
+          ] as const
+        ).map(([id, label, Icon]) => {
+          const on = desk === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => onPick(id)}
+              className={`inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold ${on ? "bg-brass text-white shadow-[2px_2px_0_#000]" : "text-muted"}`}
+            >
+              <Icon className="size-4" aria-hidden="true" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

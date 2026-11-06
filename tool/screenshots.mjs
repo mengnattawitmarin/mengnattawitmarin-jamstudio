@@ -72,6 +72,16 @@ for (const [label, vp] of [["desktop", { width: 1440, height: 900 }], ["phone", 
   await page.waitForTimeout(300);
   await page.screenshot({ path: `qa/${label}-rig-amps.png`, fullPage: label === "desktop" });
   await page.getByRole("button", { name: "แอมป์ & เอฟเฟค" }).last().click();
+  // Connect & mixer: add a guitar + a keys channel, open the guitar input
+  await page.getByRole("tab", { name: "เชื่อมต่อ & มิกเซอร์" }).click().catch((e) => log.push(`[${label}] connect tab: ${String(e).slice(0, 120)}`));
+  await page.waitForTimeout(400);
+  await page.getByRole("button", { name: "เพิ่มช่อง" }).click();
+  await page.getByRole("button", { name: /กีตาร์ไฟฟ้า/ }).first().click();
+  await page.getByRole("button", { name: "เพิ่มช่อง" }).click();
+  await page.getByRole("button", { name: /คีย์บอร์ด \/ ซินธ์/ }).first().click();
+  await page.getByRole("button", { name: "ปิด" }).first().click().catch(() => undefined);
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: `qa/${label}-connect.png`, fullPage: label === "desktop" });
   // Jam: enter a room
   await (label === "desktop" ? page.locator("header nav button") : page.locator("nav[aria-label='เมนูหลัก'] >> nth=-1").locator("button")).filter({ hasText: /แจม|ห้องซ้อม/ }).first().click();
   await page.getByRole("button", { name: "สร้างห้องซ้อม" }).click();

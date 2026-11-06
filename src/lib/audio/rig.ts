@@ -1996,6 +1996,13 @@ export class RigEngine {
   private lastRms = 0;
   private howlMuted = false;
   private masterLevel = 0.8;
+  /** Final output (post-limiter) — tap for recording or streaming. */
+  readonly outBus: GainNode;
+  /** Bus for mixer channels / MIDI instruments (before the shared limiter). */
+  readonly mixIn: GainNode;
+  private recDest: MediaStreamAudioDestinationNode | null = null;
+  private recorder: MediaRecorder | null = null;
+  private recChunks: Blob[] = [];
   /** Disable to never auto-mute (e.g. amp sim through a speaker on purpose). */
   howlGuard = true;
   onBeat: ((beat: number) => void) | null = null;
@@ -2127,10 +2134,16 @@ export class RigEngine {
     this.limiter.attack.value = 0.003;
     this.limiter.release.value = 0.12;
     this.master.connect(this.limiter);
-    this.limiter.connect(this.ctx.destination);
+    // Everything leaves through outBus (so recording / app routing hear it all).
+    this.outBus = this.ctx.createGain();
+    this.limiter.connect(this.outBus);
+    this.outBus.connect(this.ctx.destination);
+    // Mixer channels and MIDI instruments join here: shared limiter, own faders.
+    this.mixIn = this.ctx.createGain();
+    this.mixIn.connect(this.limiter);
     this.backingGain = this.ctx.createGain();
     this.backingGain.gain.value = 0.7;
-    this.backingGain.connect(this.ctx.destination);
+    this.backingGain.connect(this.outBus);
     this.fxSend.connect(this.ampInput);
 
     this.timer = setInterval(() => this.analyse(), 90);
@@ -2468,8 +2481,64 @@ export class RigEngine {
     }, 40);
   }
 
+  isClosed(): boolean {
+    return this.closed;
+  }
+
+  /** Node feeding the amp/pedal chain (for routing an external channel "through the amp"). */
+  ampInputNode(): AudioNode {
+    return this.inputGain;
+  }
+
+  /** A MediaStream of the full output (to send into a jam room or another app). */
+  outputStream(): MediaStream {
+    if (!this.recDest) {
+      this.recDest = this.ctx.createMediaStreamDestination();
+      this.outBus.connect(this.recDest);
+    }
+    return this.recDest.stream;
+  }
+
+  isRecording(): boolean {
+    return this.recorder?.state === "recording";
+  }
+
+  /** Record everything the app outputs. Returns false if the browser can't. */
+  startRecording(): boolean {
+    if (typeof MediaRecorder === "undefined" || this.isRecording()) return false;
+    const stream = this.outputStream();
+    const types = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"];
+    const mimeType = types.find((t) => MediaRecorder.isTypeSupported?.(t));
+    try {
+      this.recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 192000 } : undefined);
+    } catch {
+      return false;
+    }
+    this.recChunks = [];
+    this.recorder.ondataavailable = (event) => {
+      if (event.data.size) this.recChunks.push(event.data);
+    };
+    this.recorder.start(500);
+    return true;
+  }
+
+  stopRecording(): Promise<Blob | null> {
+    const rec = this.recorder;
+    if (!rec || rec.state === "inactive") return Promise.resolve(null);
+    return new Promise((resolve) => {
+      rec.onstop = () => {
+        const blob = this.recChunks.length ? new Blob(this.recChunks, { type: rec.mimeType || "audio/webm" }) : null;
+        this.recChunks = [];
+        this.recorder = null;
+        resolve(blob);
+      };
+      rec.stop();
+    });
+  }
+
   close() {
     this.closed = true;
+    if (this.isRecording()) this.recorder?.stop();
     this.onBeat = null;
     this.onFeedback = null;
     if (this.timer) clearInterval(this.timer);
