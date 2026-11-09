@@ -95,6 +95,7 @@ npm run build:mobile && npx cap add android && node tool/patch-native.mjs androi
 ## บันทึกการส่งต่อ (เพิ่มรายการใหม่ไว้บนสุด)
 | วันที่ | ผู้ทำ | ทำอะไร | ค้าง/ข้อควรรู้ |
 |---|---|---|---|
+| 2026-11-09 | Claude (claude.ai) | AI แยกเสียง 6 เลน (HT-Demucs 6s ONNX fp16 ~136 MB, onnxruntime-web 1.22 ใน worker, แคชโมเดลใน Cache Storage) ใช้งานได้แล้ว: แท็บ แยกเสียง → "เริ่มแยกด้วย AI" → โหมด AI ที่แถบล่าง. สาเหตุที่เคยล้ม: graph optimization ทำ wasm heap ล้น 4 GB → ต้อง `graphOptimizationLevel: "disabled"` | ใช้ RAM ~1.4 GB ตอนรัน (iPhone RAM น้อยอาจปิดแท็บ), CPU ~14 วิ/ช่วง 7.8 วิ บน CI — เพลง 4 นาทีบนมือถืออาจ 10–20 นาที; ยังไม่ทดสอบเครื่องจริง |
 | 2026-11-06 | Claude (claude.ai) | เชื่อมต่อ & มิกเซอร์: ช่องอินพุตกีตาร์/เบส/คีย์บอร์ด/กลองไฟฟ้า/ไมค์/โปร่ง/ไลน์ ผ่านแอมป์หรือ DI, EQ/คอมเพรส/แพน/M/S/เฟดเดอร์, MIDI (Web MIDI) เล่นเสียงในแอป + ช่อง 10 กลอง GM + ส่ง MIDI ออก/thru + CC learn, RigEngine มี outBus/mixIn/อัดเสียง (MediaRecorder), JamSynth รับ ctx ร่วม | Web MIDI ไม่มีบน iOS; มือถือส่วนใหญ่เปิดอินพุตได้ทีละอุปกรณ์ |
 | 2026-11-05 | Claude (claude.ai) | ห้องซ้อม 3D/AR ในแอป: เลือกตัวละคร 6 ตัว/สีชุด/เครื่องดนตรี (ที่ lobby และในห้อง), ฉากสตูดิโอนีออนตามภาพอ้างอิง, โหมด AR กล้อง, สิทธิ์ CAMERA/NSCameraUsageDescription | AR ยังไม่ใช่การจับพื้นจริง (overlay บนวิดีโอ) |
 | 2026-11-05 | Claude (claude.ai) | แก้ติดตั้ง APK ไม่ได้ ("แพ็กเกจขัดแย้ง"): บังคับเซ็นด้วย tool/signing/debug.keystore ผ่าน patch-native + ตรวจ SHA-256 ใน CI (bb6402…d453) | ผู้ใช้ต้องลบแอปเก่าครั้งเดียว หลังจากนั้นอัปเดตทับได้ |
