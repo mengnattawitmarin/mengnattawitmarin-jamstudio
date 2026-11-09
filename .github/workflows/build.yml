@@ -180,6 +180,7 @@ jobs:
     needs: web
     runs-on: macos-15
     continue-on-error: true
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -218,7 +219,7 @@ jobs:
 
   release:
     name: Publish release
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.android.result == 'success'
     needs: [web, android, ios]
     runs-on: ubuntu-latest
     steps:
