@@ -24,7 +24,7 @@ export const AI_STEM_LABELS: Record<AiStemId, { name: string; en: string }> = {
 export const DEMUCS_MODEL_URL = "https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx";
 
 /** Segment start offsets covering `length` samples. */
-export function planChunks(length: number, segment = SEGMENT, overlap = OVERLAP): number[] {
+export function planChunks(length: number, segment: number = SEGMENT, overlap: number = OVERLAP): number[] {
   const stride = Math.max(1, Math.round(segment * (1 - overlap)));
   const out: number[] = [];
   for (let start = 0; start < length; start += stride) {
@@ -35,7 +35,7 @@ export function planChunks(length: number, segment = SEGMENT, overlap = OVERLAP)
 }
 
 /** Triangular weight like demucs (1..peak..1), normalised to max 1. */
-export function triangleWeight(segment = SEGMENT): Float32Array {
+export function triangleWeight(segment: number = SEGMENT): Float32Array {
   const w = new Float32Array(segment);
   const half = Math.floor(segment / 2);
   for (let i = 0; i < segment; i++) w[i] = i < half ? i + 1 : segment - i;
@@ -61,7 +61,7 @@ export function monoStats(left: Float32Array, right: Float32Array): { mean: numb
 }
 
 /** Build the model input [1, 2, SEGMENT] (normalised, zero-padded) for one chunk. */
-export function chunkInput(left: Float32Array, right: Float32Array, start: number, stats: { mean: number; std: number }, segment = SEGMENT): Float32Array {
+export function chunkInput(left: Float32Array, right: Float32Array, start: number, stats: { mean: number; std: number }, segment: number = SEGMENT): Float32Array {
   const input = new Float32Array(2 * segment);
   const end = Math.min(left.length, start + segment);
   for (let i = start; i < end; i++) {
@@ -79,7 +79,7 @@ export class OverlapAdd {
   private readonly length: number;
   private readonly segment: number;
 
-  constructor(length: number, stemCount = AI_STEMS.length, segment = SEGMENT) {
+  constructor(length: number, stemCount: number = AI_STEMS.length, segment: number = SEGMENT) {
     this.length = length;
     this.segment = segment;
     this.stems = Array.from({ length: stemCount }, () => [new Float32Array(length), new Float32Array(length)]);
