@@ -59,21 +59,46 @@ scope.onmessage = async (event: MessageEvent<Start>) => {
   try {
     const model = await fetchModel(msg.modelUrl);
     post({ type: "progress", phase: "load", ratio: 0, detail: "กำลังเตรียม AI" });
-    const ort = await import("onnxruntime-web/webgpu");
-    ort.env.wasm.wasmPaths = msg.ortBase;
-    ort.env.wasm.numThreads = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
-    let session: Awaited<ReturnType<typeof ort.InferenceSession.create>> | null = null;
+    type Ort = typeof import("onnxruntime-web/wasm");
+    let stage = "init";
+    let ort: Ort | null = null;
+    let session: Awaited<ReturnType<Ort["InferenceSession"]["create"]>> | null = null;
     let backend = "wasm";
-    const hasGpu = typeof (navigator as Navigator & { gpu?: unknown }).gpu !== "undefined";
-    if (hasGpu) {
+    const threads = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
+    // Only try WebGPU when a real adapter exists; a failed WebGPU init can leave
+    // that wasm instance aborted, so the CPU path uses a separate module.
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
+    let adapter: unknown = null;
+    try {
+      adapter = gpu ? await gpu.requestAdapter() : null;
+    } catch {
+      adapter = null;
+    }
+    if (adapter) {
       try {
-        session = await ort.InferenceSession.create(model, { executionProviders: ["webgpu"], graphOptimizationLevel: "all" });
+        stage = "webgpu";
+        (self as unknown as { __stage?: string }).__stage = stage;
+        const gpuOrt = (await import("onnxruntime-web/webgpu")) as unknown as Ort;
+        gpuOrt.env.wasm.wasmPaths = msg.ortBase;
+        gpuOrt.env.wasm.numThreads = threads;
+        session = await gpuOrt.InferenceSession.create(model, { executionProviders: ["webgpu"], graphOptimizationLevel: "all" });
+        ort = gpuOrt;
         backend = "webgpu";
       } catch {
         session = null;
       }
     }
-    if (!session) session = await ort.InferenceSession.create(model, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    if (!session) {
+      stage = "wasm";
+      (self as unknown as { __stage?: string }).__stage = stage;
+      const cpuOrt = await import("onnxruntime-web/wasm");
+      cpuOrt.env.wasm.wasmPaths = msg.ortBase;
+      cpuOrt.env.wasm.numThreads = threads;
+      ort = cpuOrt;
+      session = await cpuOrt.InferenceSession.create(model, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    }
+    stage = "run";
+    (self as unknown as { __stage?: string }).__stage = stage;
     post({ type: "progress", phase: "load", ratio: 1, detail: backend === "webgpu" ? "ใช้การ์ดจอ (WebGPU)" : "ใช้ CPU" });
 
     const { left, right } = msg;
@@ -83,7 +108,7 @@ scope.onmessage = async (event: MessageEvent<Start>) => {
     const inputName = session.inputNames[0];
     const outputName = session.outputNames[0];
     for (let i = 0; i < starts.length; i++) {
-      const input = new ort.Tensor("float32", chunkInput(left, right, starts[i], stats), [1, 2, SEGMENT]);
+      const input = new ort!.Tensor("float32", chunkInput(left, right, starts[i], stats), [1, 2, SEGMENT]);
       const result = await session.run({ [inputName]: input });
       const out = result[outputName];
       ola.add(out.data as Float32Array, starts[i]);
@@ -95,6 +120,6 @@ scope.onmessage = async (event: MessageEvent<Start>) => {
     const stems = ola.finish(stats);
     post({ type: "done", stems, backend, seconds: (performance.now() - t0) / 1000 }, stems.flat().map((ch) => ch.buffer));
   } catch (error) {
-    post({ type: "error", message: error instanceof Error ? error.message : String(error) });
+    post({ type: "error", message: `[${(self as unknown as { __stage?: string }).__stage ?? "?"}] ${error instanceof Error ? error.message : String(error)}` });
   }
 };
