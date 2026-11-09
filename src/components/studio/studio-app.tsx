@@ -59,6 +59,65 @@ import { stretchBuffer } from "@/lib/audio/run-stretch";
 import { addSong, getSongBlob, updateSong } from "@/lib/library";
 import { useSettings } from "@/lib/settings";
 import { installAudioUnlock, resumeAllAudio } from "@/lib/audio/ios-audio";
+import { runDemucs } from "@/lib/audio/run-demucs";
+import { AI_STEMS, AI_STEM_LABELS, type AiStemId } from "@/lib/audio/demucs";
+
+type PlayMode = "original" | "stems" | "ai";
+type AiJob = { phase: string; ratio: number; detail?: string; started: number };
+type AiProps = {
+  ready: boolean;
+  job: AiJob | null;
+  error: string;
+  info: { backend: string; seconds: number } | null;
+  volumes: Record<AiStemId, number>;
+  muted: Record<AiStemId, boolean>;
+  solo: Record<AiStemId, boolean>;
+  onStart: () => void;
+  onCancel: () => void;
+  onVolume: (id: AiStemId, value: number) => void;
+  onMute: (id: AiStemId) => void;
+  onSolo: (id: AiStemId) => void;
+  onDownload: (id: AiStemId) => void;
+};
+
+const aiRecord = <T,>(value: T) => Object.fromEntries(AI_STEMS.map((id) => [id, value])) as Record<AiStemId, T>;
+function aiAudibleMap(muted: Record<AiStemId, boolean>, solo: Record<AiStemId, boolean>): Record<AiStemId, boolean> {
+  const anySolo = AI_STEMS.some((id) => solo[id]);
+  return Object.fromEntries(AI_STEMS.map((id) => [id, anySolo ? solo[id] : !muted[id]])) as Record<AiStemId, boolean>;
+}
+
+function stereoWav(buffer: AudioBuffer): Blob {
+  const n = buffer.length;
+  const chans = Math.min(2, buffer.numberOfChannels);
+  const data = new ArrayBuffer(44 + n * chans * 2);
+  const view = new DataView(data);
+  const w = (o: number, t: string) => {
+    for (let i = 0; i < t.length; i++) view.setUint8(o + i, t.charCodeAt(i));
+  };
+  w(0, "RIFF");
+  view.setUint32(4, 36 + n * chans * 2, true);
+  w(8, "WAVE");
+  w(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, chans, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * chans * 2, true);
+  view.setUint16(32, chans * 2, true);
+  view.setUint16(34, 16, true);
+  w(36, "data");
+  view.setUint32(40, n * chans * 2, true);
+  const cs = Array.from({ length: chans }, (_, c) => buffer.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < chans; c++) {
+      const v = Math.max(-1, Math.min(1, cs[c][i]));
+      view.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+      o += 2;
+    }
+  }
+  return new Blob([data], { type: "audio/wav" });
+}
 
 type Desk = "home" | "jam" | "rig" | "connect" | "studio" | "library" | "tuner" | "settings";
 
@@ -99,7 +158,15 @@ export function StudioApp() {
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
-  const [mode, setMode] = useState<"original" | "stems">("original");
+  const [mode, setMode] = useState<PlayMode>("original");
+  const [aiReady, setAiReady] = useState(false);
+  const [aiJob, setAiJob] = useState<AiJob | null>(null);
+  const [aiError, setAiError] = useState("");
+  const [aiInfo, setAiInfo] = useState<{ backend: string; seconds: number } | null>(null);
+  const [aiVol, setAiVol] = useState<Record<AiStemId, number>>(() => aiRecord(1));
+  const [aiMuted, setAiMuted] = useState<Record<AiStemId, boolean>>(() => aiRecord(false));
+  const [aiSolo, setAiSolo] = useState<Record<AiStemId, boolean>>(() => aiRecord(false));
+  const aiCancel = useRef<(() => void) | null>(null);
   const [volumes, setVolumes] = useState<Volumes>(fullVolumes);
   const [muted, setMuted] = useState(emptyFlags);
   const [solo, setSolo] = useState(emptyFlags);
@@ -218,7 +285,67 @@ export function StudioApp() {
     if (engine.isPlaying()) setPlaying(true);
   }
 
-  function pushMix(nextMode: "original" | "stems", nextVolumes: Volumes, nextAudible: Audible) {
+  function pushAi(nextMode: PlayMode, vol: Record<AiStemId, number>, muted: Record<AiStemId, boolean>, solo: Record<AiStemId, boolean>) {
+    const engine = player();
+    const wasPlaying = engine.isPlaying();
+    const at = engine.currentTime();
+    const changed = engine.mode !== nextMode;
+    engine.mode = nextMode;
+    engine.rate = rate;
+    engine.metronome = metro;
+    engine.applyAiGains(vol, aiAudibleMap(muted, solo), changed);
+    setMode(nextMode);
+    if (changed && wasPlaying) engine.play(at);
+  }
+
+  function startAi() {
+    const engine = player();
+    if (!engine.original || aiJob) return;
+    setAiError("");
+    const started = performance.now();
+    setAiJob({ phase: "resample", ratio: 0, started });
+    const job = runDemucs(engine.ensure(), engine.original, (p) => setAiJob({ phase: p.phase, ratio: p.ratio, detail: p.detail, started }));
+    aiCancel.current = job.cancel;
+    job.promise
+      .then(({ stems, backend, seconds }) => {
+        engine.ai = stems;
+        engine.processed = null;
+        (window as unknown as { __kakunAiEnergy?: () => Record<string, number> }).__kakunAiEnergy = () => {
+          const rms = (b: AudioBuffer) => {
+            const d = b.getChannelData(0);
+            let sum = 0;
+            for (let i = 0; i < d.length; i += 64) sum += d[i] * d[i];
+            return Math.round(Math.sqrt(sum / (d.length / 64)) * 1000) / 1000;
+          };
+          const out: Record<string, number> = {};
+          for (const [id, b] of stems) out[id] = rms(b);
+          if (engine.original) out.original = rms(engine.original);
+          return out;
+        };
+        setAiReady(true);
+        setAiInfo({ backend, seconds });
+        setAiJob(null);
+        const nextMuted = aiRecord(false);
+        setAiMuted(nextMuted);
+        setAiSolo(aiRecord(false));
+        pushAi("ai", aiVol, nextMuted, aiRecord(false));
+      })
+      .catch((error: unknown) => {
+        setAiJob(null);
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === "cancelled") return;
+        setAiError(
+          /memory|allocat|RangeError|out of/i.test(message)
+            ? "หน่วยความจำเครื่องไม่พอ — ลองปิดแอปอื่น หรือใช้เพลงที่สั้นลง (หรือใช้บนคอมพิวเตอร์)"
+            : `AI แยกเสียงไม่สำเร็จ: ${message.slice(0, 160)}`,
+        );
+      })
+      .finally(() => {
+        aiCancel.current = null;
+      });
+  }
+
+  function pushMix(nextMode: PlayMode, nextVolumes: Volumes, nextAudible: Audible) {
     const engine = player();
     const wasPlaying = engine.isPlaying();
     const at = engine.currentTime();
@@ -242,6 +369,16 @@ export function StudioApp() {
     setRatio(0);
     setStatus("ถอดรหัสไฟล์");
     setAnalysis(null);
+    aiCancel.current?.();
+    engine.ai = new Map();
+    setAiReady(false);
+    setAiJob(null);
+    setAiInfo(null);
+    setAiError("");
+    if (engine.mode === "ai") {
+      engine.mode = "original";
+      setMode("original");
+    }
     try {
       const ctx = engine.ensure();
       const trimmed = trimBuffer(ctx, buffer, MAX_SECONDS);
@@ -373,7 +510,8 @@ export function StudioApp() {
     const ctx = engine.ensure();
     const original = engine.original;
     const stems = [...engine.stems.entries()];
-    const total = 1 + stems.length;
+    const aiStems = [...engine.ai.entries()];
+    const total = 1 + stems.length + aiStems.length;
     setProcessing(0);
     const timer = window.setTimeout(async () => {
       try {
@@ -388,10 +526,18 @@ export function StudioApp() {
             if (job === stretchJob.current) setProcessing((i + 1 + r) / total);
           }));
         }
+        const outAi = new Map<AiStemId, AudioBuffer>();
+        for (let i = 0; i < aiStems.length; i++) {
+          if (job !== stretchJob.current) return;
+          const [id, buffer] = aiStems[i];
+          outAi.set(id, await stretchBuffer(ctx, buffer, rate, transpose, (r) => {
+            if (job === stretchJob.current) setProcessing((1 + stems.length + i + r) / total);
+          }));
+        }
         if (job !== stretchJob.current) return;
         const wasPlaying = engine.isPlaying();
         const at = engine.currentTime();
-        engine.processed = { rate, semitones: transpose, original: out, stems: outStems };
+        engine.processed = { rate, semitones: transpose, original: out, stems: outStems, ai: outAi };
         if (wasPlaying) engine.play(at);
         setProcessing(null);
       } catch {
@@ -402,7 +548,7 @@ export function StudioApp() {
       }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [rate, transpose, keepPitch, analysis]);
+  }, [rate, transpose, keepPitch, analysis, aiReady]);
 
   const view = useMemo(() => {
     if (!analysis) return null;
@@ -594,6 +740,36 @@ export function StudioApp() {
             for (const stem of STEM_IDS) map[stem] = anySolo ? solo[stem] : !nextMuted[stem];
             pushMix("stems", volumes, map);
           }}
+          ai={{
+            ready: aiReady,
+            job: aiJob,
+            error: aiError,
+            info: aiInfo,
+            volumes: aiVol,
+            muted: aiMuted,
+            solo: aiSolo,
+            onStart: startAi,
+            onCancel: () => aiCancel.current?.(),
+            onVolume: (id, value) => {
+              const next = { ...aiVol, [id]: value };
+              setAiVol(next);
+              pushAi("ai", next, aiMuted, aiSolo);
+            },
+            onMute: (id) => {
+              const next = { ...aiMuted, [id]: !aiMuted[id] };
+              setAiMuted(next);
+              pushAi("ai", aiVol, next, aiSolo);
+            },
+            onSolo: (id) => {
+              const next = { ...aiSolo, [id]: !aiSolo[id] };
+              setAiSolo(next);
+              pushAi("ai", aiVol, aiMuted, next);
+            },
+            onDownload: (id) => {
+              const buffer = playerRef.current?.ai.get(id);
+              if (buffer) downloadBlob(stereoWav(buffer), `${slug(title)}-${AI_STEM_LABELS[id].en.toLowerCase()}.wav`);
+            },
+          }}
           onSolo={(id) => {
             const nextSolo = { ...solo, [id]: !solo[id] };
             setSolo(nextSolo);
@@ -620,9 +796,10 @@ export function StudioApp() {
           keyName={view ? formatPc(view.tonic, view.flats) + (analysis.key.mode === "minor" ? "m" : "") : ""}
           keepPitch={keepPitch}
           processing={processing}
-          vocalCut={muted.vocal && mode === "stems"}
+          vocalCut={aiReady ? mode === "ai" && aiMuted.vocals : muted.vocal && mode === "stems"}
+          aiReady={aiReady}
           onToggle={() => void toggle()}
-          onMode={(next) => pushMix(next, volumes, audible)}
+          onMode={(next) => (next === "ai" ? pushAi("ai", aiVol, aiMuted, aiSolo) : pushMix(next, volumes, audible))}
           onRate={(next) => {
             setRate(next);
             const engine = player();
@@ -632,6 +809,12 @@ export function StudioApp() {
           onTranspose={setTranspose}
           onKeepPitch={setKeepPitch}
           onVocalCut={() => {
+            if (aiReady) {
+              const next = { ...aiMuted, vocals: !(mode === "ai" && aiMuted.vocals) };
+              setAiMuted(next);
+              pushAi("ai", aiVol, next, aiSolo);
+              return;
+            }
             const nextMuted = { ...muted, vocal: !(muted.vocal && mode === "stems") };
             setMuted(nextMuted);
             const anySolo = STEM_IDS.some((stem) => solo[stem]);
@@ -943,7 +1126,9 @@ function Studio({
   onVolume,
   onMute,
   onSolo,
+  ai,
 }: {
+  ai: AiProps;
   analysis: Analysis;
   peaks: Float32Array | null;
   title: string;
@@ -1172,6 +1357,7 @@ function Studio({
 
       {section === "stems" ? (
         <div className="flex flex-col gap-3">
+          <AiPanel ai={ai} />
           <div className="grid gap-3 md:grid-cols-2">
             {STEMS.map((stem) => {
               const data = analysis.stems.find((item) => item.id === stem.id);
@@ -1270,6 +1456,90 @@ function Studio({
         </div>
       ) : null}
     </main>
+  );
+}
+
+function AiPanel({ ai }: { ai: AiProps }) {
+  const pct = ai.job ? Math.round(ai.job.ratio * 100) : 0;
+  const phaseLabel: Record<string, string> = {
+    resample: "เตรียมไฟล์เสียง",
+    download: "ดาวน์โหลดโมเดล AI (ครั้งแรกครั้งเดียว ~136 MB)",
+    load: "โหลด AI",
+    separate: "กำลังแยกเสียง",
+  };
+  const elapsed = ai.job ? (performance.now() - ai.job.started) / 1000 : 0;
+  const eta = ai.job && ai.job.phase === "separate" && ai.job.ratio > 0.04 ? Math.round((elapsed / ai.job.ratio) * (1 - ai.job.ratio)) : null;
+  return (
+    <section className="tile-rock halftone bg-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="tape text-xs">AI · เบต้า</p>
+          <h2 className="title-rock mt-2 text-3xl">
+            แยกเสียงด้วย <span className="text-grad">AI</span>
+          </h2>
+          <p className="mt-1 max-w-xl text-sm text-muted">
+            แยกเป็น 6 เลนสะอาด: ร้อง · กลอง · เบส · กีตาร์ · คีย์บอร์ด · อื่นๆ ด้วยโมเดล HT-Demucs ประมวลผลในเครื่องคุณ ไฟล์ไม่ถูกส่งออกไปไหน
+          </p>
+        </div>
+        {!ai.ready && !ai.job ? (
+          <button type="button" onClick={ai.onStart} className="inline-flex h-12 items-center gap-2 rounded-lg border-2 border-black bg-brass px-5 font-semibold text-white shadow-[3px_3px_0_#000]">
+            เริ่มแยกด้วย AI
+          </button>
+        ) : null}
+      </div>
+      {ai.job ? (
+        <div className="mt-3">
+          <div className="flex justify-between gap-2 text-xs text-muted">
+            <span>
+              {phaseLabel[ai.job.phase] ?? ai.job.phase} {ai.job.detail ? `· ${ai.job.detail}` : ""}
+            </span>
+            <span className="tabular-nums">{pct}%{eta != null ? ` · เหลือ ~${eta >= 60 ? `${Math.floor(eta / 60)} นาที` : `${eta} วิ`}` : ""}</span>
+          </div>
+          <div className="mt-1 h-3 overflow-hidden rounded-full bg-bg" aria-hidden="true">
+            <div className="h-full bg-brass transition-[width]" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-muted">เปิดหน้านี้ค้างไว้ · มือถือใช้เวลาหลายนาที คอมพิวเตอร์เร็วกว่า</p>
+            <button type="button" onClick={ai.onCancel} className="h-9 rounded-lg border-2 border-line px-3 text-sm">
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {ai.error ? (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {ai.error}
+        </p>
+      ) : null}
+      {ai.ready ? (
+        <div className="mt-3">
+          <p className="mb-2 text-xs text-muted">
+            เสร็จใน {Math.round(ai.info?.seconds ?? 0)} วิ ({ai.info?.backend === "webgpu" ? "การ์ดจอ" : "CPU"}) · เลือกโหมด “AI” ที่แถบล่าง หรือกดมิวต์/โซโลแต่ละเลน
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {(["vocals", "drums", "bass", "guitar", "piano", "other"] as AiStemId[]).map((id) => (
+              <div key={id} className="rounded-lg border-2 border-line bg-surface-2 p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 text-sm font-semibold">
+                    {AI_STEM_LABELS[id].name}
+                    <span className="ml-1.5 text-xs font-normal text-muted">{AI_STEM_LABELS[id].en}</span>
+                  </span>
+                  <Toggle label="มิวต์" pressed={ai.muted[id]} onClick={() => ai.onMute(id)} />
+                  <Toggle label="โซโล" pressed={ai.solo[id]} onClick={() => ai.onSolo(id)} />
+                  <button type="button" aria-label={`ดาวน์โหลด ${AI_STEM_LABELS[id].name}`} onClick={() => ai.onDownload(id)} className="grid h-10 w-10 place-items-center rounded-md border border-line bg-surface">
+                    <Download className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <label className="mt-1 flex items-center gap-2 text-xs text-muted">
+                  ดัง
+                  <input type="range" min={0} max={1.5} step={0.01} value={ai.volumes[id]} onChange={(e) => ai.onVolume(id, Number(e.target.value))} className="w-full" />
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1514,6 +1784,7 @@ function Transport({
   keepPitch,
   processing,
   vocalCut,
+  aiReady,
   onToggle,
   onMode,
   onRate,
@@ -1526,7 +1797,8 @@ function Transport({
   playing: boolean;
   time: number;
   duration: number;
-  mode: "original" | "stems";
+  mode: PlayMode;
+  aiReady: boolean;
   rate: number;
   metro: boolean;
   loop: { start: number; end: number } | null;
@@ -1536,7 +1808,7 @@ function Transport({
   processing: number | null;
   vocalCut: boolean;
   onToggle: () => void;
-  onMode: (mode: "original" | "stems") => void;
+  onMode: (mode: PlayMode) => void;
   onRate: (rate: number) => void;
   onTranspose: (value: number) => void;
   onKeepPitch: (value: boolean) => void;
@@ -1568,6 +1840,11 @@ function Transport({
           <Chip on={mode === "stems"} onClick={() => onMode("stems")}>
             มิกซ์เลน
           </Chip>
+          {aiReady ? (
+            <Chip on={mode === "ai"} onClick={() => onMode("ai")}>
+              AI
+            </Chip>
+          ) : null}
         </div>
         <div className="flex items-center rounded-md border border-line bg-surface" aria-label="ความเร็ว">
           <button type="button" aria-label="ช้าลง" onClick={() => step(-0.05)} className="grid h-10 w-9 place-items-center">

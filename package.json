@@ -16,7 +16,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/audio/stretch.test.ts src/lib/audio/tunings.test.ts src/lib/audio/chord-shapes.test.ts src/lib/avatars.test.ts src/lib/audio/midi.test.ts src/lib/audio/mixer.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts src/lib/audio/stretch.test.ts src/lib/audio/tunings.test.ts src/lib/audio/chord-shapes.test.ts src/lib/avatars.test.ts src/lib/audio/midi.test.ts src/lib/audio/mixer.test.ts src/lib/audio/demucs.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "build:mobile": "vite build --config vite.mobile.config.ts",
@@ -80,7 +80,8 @@
     "vaul": "^1.1.2",
     "vite": "^8.2.0",
     "zod": "^4.4.0",
-    "zustand": "^5.0.0"
+    "zustand": "^5.0.0",
+    "onnxruntime-web": "1.22.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

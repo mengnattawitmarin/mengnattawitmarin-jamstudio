@@ -1,4 +1,5 @@
 import { STEM_IDS, type StemId } from "@/lib/audio/stems";
+import { AI_STEMS, type AiStemId } from "@/lib/audio/demucs";
 
 export type Audible = Record<StemId, boolean>;
 export type Volumes = Record<StemId, number>;
@@ -7,6 +8,9 @@ export class MixPlayer {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private stemGains = new Map<StemId, GainNode>();
+  private aiGains = new Map<AiStemId, GainNode>();
+  /** AI-separated stems (HT-Demucs 6s), empty until the user runs AI separation. */
+  ai = new Map<AiStemId, AudioBuffer>();
   private sources: AudioBufferSourceNode[] = [];
   private metroTimer: number | null = null;
   private nextBeat = 0;
@@ -14,14 +18,20 @@ export class MixPlayer {
   stems = new Map<StemId, AudioBuffer>();
   beats: number[] = [];
   duration = 0;
-  mode: "original" | "stems" = "original";
+  mode: "original" | "stems" | "ai" = "original";
   rate = 1;
   metronome = false;
   /**
    * Pre-rendered WSOLA versions (pitch kept / key shifted) for `processed.rate`.
    * They play at playbackRate 1; song time still advances at `rate`.
    */
-  processed: { rate: number; semitones: number; original: AudioBuffer | null; stems: Map<StemId, AudioBuffer> } | null = null;
+  processed: {
+    rate: number;
+    semitones: number;
+    original: AudioBuffer | null;
+    stems: Map<StemId, AudioBuffer>;
+    ai?: Map<AiStemId, AudioBuffer>;
+  } | null = null;
   private offset = 0;
   private startedAt = 0;
   private playing = false;
@@ -36,6 +46,11 @@ export class MixPlayer {
         const gain = this.ctx.createGain();
         gain.connect(this.master);
         this.stemGains.set(id, gain);
+      }
+      for (const id of AI_STEMS) {
+        const gain = this.ctx.createGain();
+        gain.connect(this.master);
+        this.aiGains.set(id, gain);
       }
     }
     return this.ctx;
@@ -67,7 +82,16 @@ export class MixPlayer {
     this.startedAt = ctx.currentTime;
     this.playing = true;
     const proc = this.processed && Math.abs(this.processed.rate - this.rate) < 1e-6 ? this.processed : null;
-    if (this.mode === "original" && this.original) {
+    if (this.mode === "ai" && this.ai.size) {
+      for (const id of AI_STEMS) {
+        const alt = proc?.ai?.get(id);
+        const buffer = alt ?? this.ai.get(id);
+        const gain = this.aiGains.get(id);
+        if (!buffer || !gain) continue;
+        if (alt) this.spawn(alt, gain, 1 / this.rate, 1);
+        else this.spawn(buffer, gain);
+      }
+    } else if (this.mode === "original" && this.original) {
       const alt = proc?.original;
       if (alt) this.spawn(alt, this.master!, 1 / this.rate, 1);
       else this.spawn(this.original, this.master!);
@@ -111,6 +135,22 @@ export class MixPlayer {
     if (this.metroTimer != null) {
       window.clearInterval(this.metroTimer);
       this.metroTimer = null;
+    }
+  }
+
+  applyAiGains(volumes: Record<AiStemId, number>, audible: Record<AiStemId, boolean>, immediate = false) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const id of AI_STEMS) {
+      const node = this.aiGains.get(id);
+      if (!node) continue;
+      const value = audible[id] ? volumes[id] : 0;
+      node.gain.cancelScheduledValues(now);
+      if (immediate) node.gain.setValueAtTime(value, now);
+      else {
+        node.gain.setValueAtTime(node.gain.value, now);
+        node.gain.linearRampToValueAtTime(value, now + 0.03);
+      }
     }
   }
 
