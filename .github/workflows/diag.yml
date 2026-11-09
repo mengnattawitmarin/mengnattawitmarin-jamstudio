@@ -1,0 +1,33 @@
+name: AI model diagnostics
+on:
+  push:
+    branches: [diag]
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Fetch models
+        run: |
+          curl -sSL -o /tmp/m16.onnx https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx
+          curl -sSL -o /tmp/m32.onnx https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s.onnx
+          ls -la /tmp/*.onnx
+      - name: Install runtimes
+        run: |
+          mkdir -p /tmp/rt && cd /tmp/rt && npm init -y >/dev/null
+          npm install --no-audit --no-fund ortw122@npm:onnxruntime-web@1.22.0 ortw123@npm:onnxruntime-web@1.23.0 ortwdev@npm:onnxruntime-web@dev
+          cp $GITHUB_WORKSPACE/tool/model-diag3.mjs /tmp/rt/
+      - name: Matrix (one process each)
+        run: |
+          cd /tmp/rt
+          for p in ortw122 ortw123 ortwdev; do for f in /tmp/m32.onnx /tmp/m16.onnx; do for o in default noarena noopt; do
+            timeout 600 node --max-old-space-size=6000 model-diag3.mjs $p $f $o 2>&1 | grep -v '^\s*at ' | tail -5
+          done; done; done | tee /tmp/diag.txt
+      - name: Inspect npm packages
+        run: |
+          cd /tmp/rt && npm pack demucs-wasm >/dev/null 2>&1 && tar tzf demucs-wasm-*.tgz | head -50 && tar xzf demucs-wasm-*.tgz && cat package/README.md | head -150 && cat package/package.json || echo "no demucs-wasm"
