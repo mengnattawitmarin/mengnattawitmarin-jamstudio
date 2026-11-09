@@ -113,17 +113,8 @@ jobs:
           name: dist-mobile
           path: dist-mobile
       - run: npm install --no-audit --no-fund
-      - name: Model diagnostics
-        continue-on-error: true
-        run: |
-          mkdir -p ai-qa
-          curl -sSL -o /tmp/m16.onnx https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx
-          curl -sSL -o /tmp/m32.onnx https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s.onnx
-          ls -la /tmp/*.onnx
-                    npm install --no-save --no-audit --no-fund ortw120@npm:onnxruntime-web@1.20.1 ortw121@npm:onnxruntime-web@1.21.0 ortw122@npm:onnxruntime-web@1.22.0 ortw123@npm:onnxruntime-web@1.23.0
-          node --max-old-space-size=6000 tool/model-diag2.mjs 2>&1 | tee ai-qa/model-diag.txt
       - run: npx playwright install --with-deps chromium
-      - run: node tool/ai-qa.mjs
+      - run: mkdir -p ai-qa && node tool/ai-qa.mjs
       - name: Push ai-qa branch
         if: always()
         run: |

@@ -95,7 +95,15 @@ scope.onmessage = async (event: MessageEvent<Start>) => {
       cpuOrt.env.wasm.wasmPaths = msg.ortBase;
       cpuOrt.env.wasm.numThreads = threads;
       ort = cpuOrt;
-      session = await cpuOrt.InferenceSession.create(model, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+      // Graph optimisation (constant folding of the conv-STFT kernels) blows the
+      // 4 GB wasm heap; with it disabled the fp16 model needs ~0.65 GB to load
+      // and ~1.4 GB while running (verified on CI, ORT-web 1.22/1.23).
+      session = await cpuOrt.InferenceSession.create(model, {
+        executionProviders: ["wasm"],
+        graphOptimizationLevel: "disabled",
+        enableCpuMemArena: false,
+        enableMemPattern: false,
+      });
     }
     stage = "run";
     (self as unknown as { __stage?: string }).__stage = stage;
