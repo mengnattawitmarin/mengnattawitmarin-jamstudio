@@ -6,8 +6,12 @@
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { installAudioUnlock } from "@/lib/audio/ios-audio";
 import { StudioApp } from "@/components/studio/studio-app";
 import "@/styles.css";
+
+// iPhone: play through the silent switch and resume audio after interruptions.
+installAudioUnlock();
 
 const root = document.getElementById("root");
 if (root) {

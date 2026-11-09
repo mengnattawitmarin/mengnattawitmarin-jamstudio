@@ -58,6 +58,7 @@ import { ChordDiagram } from "@/components/studio/chord-diagram";
 import { stretchBuffer } from "@/lib/audio/run-stretch";
 import { addSong, getSongBlob, updateSong } from "@/lib/library";
 import { useSettings } from "@/lib/settings";
+import { installAudioUnlock, resumeAllAudio } from "@/lib/audio/ios-audio";
 
 type Desk = "home" | "jam" | "rig" | "connect" | "studio" | "library" | "tuner" | "settings";
 
@@ -118,6 +119,7 @@ export function StudioApp() {
 
   useEffect(() => {
     void useSettings.persist.rehydrate();
+    installAudioUnlock();
   }, []);
 
   function go(next: Desk) {
@@ -198,6 +200,7 @@ export function StudioApp() {
       setTime(engine.currentTime());
       return;
     }
+    resumeAllAudio();
     await engine.ensure().resume();
     engine.mode = mode;
     engine.rate = rate;
